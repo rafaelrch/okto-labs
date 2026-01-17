@@ -11,8 +11,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
+  LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 
 interface SidebarProps {
   currentPage: string;
@@ -34,6 +36,7 @@ const menuItems = [
 
 export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const { session, logout } = useAuth();
 
   const badges: Record<string, number> = {
     pendingApprovals,
@@ -103,13 +106,29 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
       </nav>
 
       {/* Footer */}
-      {!collapsed && (
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="text-xs text-sidebar-muted text-center">
+      <div className="p-4 border-t border-sidebar-border">
+        {!collapsed && session && (
+          <div className="mb-3 px-2">
+            <p className="text-sm font-medium text-sidebar-foreground truncate">{session.name}</p>
+            <p className="text-xs text-sidebar-muted truncate">{session.role}</p>
+          </div>
+        )}
+        <button
+          onClick={logout}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
+            'text-sidebar-muted hover:text-destructive hover:bg-destructive/10'
+          )}
+        >
+          <LogOut className="w-5 h-5 flex-shrink-0" />
+          {!collapsed && <span className="text-sm font-medium">Sair</span>}
+        </button>
+        {!collapsed && (
+          <div className="text-xs text-sidebar-muted text-center mt-3">
             © 2024 Agency Hub
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }
