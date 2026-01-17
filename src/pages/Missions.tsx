@@ -75,10 +75,10 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   const completedMissions = filteredMissions.filter(m => m.status === 'completed');
   const expiredMissions = filteredMissions.filter(m => m.status === 'expired');
 
-  // Calcular pontuação por funcionário
+  // Calcular pontuação por funcionário (comparar com user_id do employee)
   const leaderboard = employees
     .map(emp => {
-      const empMissions = missions.filter(m => m.assigned_to === emp.id && m.status === 'completed');
+      const empMissions = missions.filter(m => m.assigned_to === emp.user_id && m.status === 'completed');
       const totalPoints = empMissions.reduce((sum, m) => sum + m.points, 0);
       return { ...emp, totalPoints, completedCount: empMissions.length };
     })
@@ -170,7 +170,8 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
 
   const getAssigneeName = (assignedTo?: string) => {
     if (!assignedTo) return null;
-    const employee = employees.find(e => e.id === assignedTo);
+    // Buscar funcionário pelo user_id (ID do auth)
+    const employee = employees.find(e => e.user_id === assignedTo);
     return employee?.name || 'Usuário';
   };
 
