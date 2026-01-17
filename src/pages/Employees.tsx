@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Edit2, Trash2, Eye, Archive, Mail, Phone, Loader2 } from 'lucide-react';
 import { useEmployees, useClients, useTasks, useContents, Employee } from '@/hooks/useSupabaseData';
+import { useAuth } from '@/hooks/useAuth';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ const roles = [
 ];
 
 export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
+  const { user } = useAuth();
   const { data: employees, loading, create, update, remove } = useEmployees();
   const { data: clients } = useClients();
   const { data: tasks } = useTasks();
@@ -34,7 +36,7 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    role: '',
+    role: roles[0],
     email: '',
     phone: '',
     avatar: '',
@@ -57,15 +59,21 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    if (!user?.id) {
+      toast.error('Você precisa estar logado para cadastrar funcionários');
+      return;
+    }
+
     const employeeData = {
-      name: formData.name,
+      user_id: user.id,
+      name: formData.name.trim(),
       role: formData.role,
-      email: formData.email,
-      phone: formData.phone,
-      avatar: formData.avatar,
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+      avatar: formData.avatar.trim(),
       hire_date: formData.hire_date || null,
-      status: editingEmployee?.status || 'active' as const,
+      status: editingEmployee?.status ?? 'active',
       skills: formData.skills.split(',').map(s => s.trim()).filter(Boolean),
     };
 
@@ -80,7 +88,8 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
       setIsModalOpen(false);
       resetForm();
     } catch (error) {
-      toast.error('Erro ao salvar funcionário');
+      console.error('Erro ao salvar funcionário:', error);
+      toast.error((error as any)?.message || 'Erro ao salvar funcionário');
     }
   };
 
