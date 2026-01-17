@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Sparkles,
   LogOut,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -25,6 +26,7 @@ interface SidebarProps {
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'missions', label: 'Missões', icon: Target },
   { id: 'ideas', label: 'Ideias', icon: Lightbulb },
   { id: 'clients', label: 'Clientes', icon: Users },
   { id: 'schedule', label: 'Cronograma', icon: Calendar },
