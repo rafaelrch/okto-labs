@@ -295,7 +295,12 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   }
 
   return (
-    <div className="flex gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+      {/* Sidebar Leaderboard - Mobile */}
+      <div className="lg:hidden">
+        <LeaderboardCard />
+      </div>
+
       {/* Main Content */}
       <div className="flex-1 space-y-6">
         {/* Header */}
@@ -520,8 +525,8 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
         </div>
       </div>
 
-      {/* Sidebar Leaderboard */}
-      <div className="hidden xl:block w-72">
+      {/* Sidebar Leaderboard - Desktop */}
+      <div className="hidden lg:block">
         <LeaderboardCard />
       </div>
     </div>
