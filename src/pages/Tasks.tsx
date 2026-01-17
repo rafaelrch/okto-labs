@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy, ChevronDown, Circle, CheckCircle2, Clock } from 'lucide-react';
 import { getFromStorage, saveToStorage, Task, Client, Employee, generateId } from '@/lib/storage';
+import { TaskStatusMenu, type TaskStatus } from '@/components/tasks/TaskStatusMenu';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
@@ -37,9 +38,8 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [filterEmployee, setFilterEmployee] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-  const [openStatusDropdownId, setOpenStatusDropdownId] = useState<string | null>(null);
+  const [statusMenu, setStatusMenu] = useState<{ taskId: string; anchorRect: DOMRect } | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -51,14 +51,11 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     tags: '',
   });
 
-  // Close dropdowns when clicking outside
+  // Close "..." dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setOpenDropdownId(null);
-      }
-      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
-        setOpenStatusDropdownId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -142,7 +139,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     );
     setTasks(updatedTasks);
     saveToStorage('tasks', updatedTasks);
-    setOpenStatusDropdownId(null);
+    setStatusMenu(null);
     toast.success('Status atualizado!');
   };
 
@@ -157,6 +154,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     saveToStorage('tasks', updatedTasks);
     toast.success('Tarefa excluída!');
     setOpenDropdownId(null);
+    setStatusMenu(null);
   };
 
   const handleDuplicate = (task: Task) => {
@@ -173,6 +171,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     saveToStorage('tasks', updatedTasks);
     toast.success('Tarefa duplicada!');
     setOpenDropdownId(null);
+    setStatusMenu(null);
   };
 
   const handleRename = (task: Task) => {
@@ -343,23 +342,28 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
       ) : (
         <div className="space-y-4">
           {statusSections.map(section => (
-            <div key={section.key} className="bg-card rounded-xl border border-border overflow-hidden">
+            <div key={section.key} className="bg-card rounded-xl border border-border overflow-visible">
               {/* Section Header */}
               <div className="flex items-center gap-3 p-3 border-b border-border">
                 <button
                   onClick={() => toggleSection(section.key)}
                   className="text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  <ChevronDown className={cn(
-                    "w-4 h-4 transition-transform",
-                    collapsedSections[section.key] && "-rotate-90"
-                  )} />
+                  <ChevronDown
+                    className={cn(
+                      "w-4 h-4 transition-transform",
+                      collapsedSections[section.key] && "-rotate-90"
+                    )}
+                  />
                 </button>
+
                 <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold", section.color)}>
                   <section.icon className="w-3.5 h-3.5" />
                   {section.label}
                 </div>
+
                 <span className="text-sm text-muted-foreground">{section.tasks.length}</span>
+
                 <button
                   onClick={() => openModalWithStatus(section.key as Task['status'])}
                   className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors ml-auto"
@@ -377,71 +381,43 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                       <div className="px-4 py-2 text-xs text-muted-foreground font-medium border-b border-border/50">
                         Nome
                       </div>
+
                       {section.tasks.map(task => (
-                        <div 
-                          key={task.id} 
+                        <div
+                          key={task.id}
                           className="flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
                         >
-                          {/* Status Dropdown */}
-                          <div className="relative" ref={openStatusDropdownId === task.id ? statusDropdownRef : null}>
-                            <button
-                              onClick={() => setOpenStatusDropdownId(openStatusDropdownId === task.id ? null : task.id)}
-                              className={cn(
-                                "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
-                                task.status === 'completed' 
-                                  ? "bg-success text-success-foreground" 
-                                  : task.status === 'in_progress'
-                                  ? "border-2 border-primary text-primary"
-                                  : "border-2 border-muted-foreground/50 hover:border-primary"
-                              )}
-                            >
-                              {task.status === 'completed' && <Check className="w-3 h-3" />}
-                              {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                            </button>
-                            {openStatusDropdownId === task.id && (
-                              <div className="fixed inset-0 z-[9998]" onClick={() => setOpenStatusDropdownId(null)} />
+                          <button
+                            onClick={(e) => {
+                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                              setStatusMenu((prev) =>
+                                prev?.taskId === task.id ? null : { taskId: task.id, anchorRect: rect }
+                              );
+                            }}
+                            className={cn(
+                              "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
+                              task.status === 'completed'
+                                ? "bg-success text-success-foreground"
+                                : task.status === 'in_progress'
+                                ? "border-2 border-primary text-primary"
+                                : "border-2 border-muted-foreground/50 hover:border-primary"
                             )}
-                            {openStatusDropdownId === task.id && (
-                              <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-xl z-[9999] py-1">
-                                <button
-                                  onClick={() => handleChangeStatus(task, 'pending')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Circle className="w-4 h-4 text-muted-foreground" />
-                                    A FAZER
-                                  </div>
-                                  {task.status === 'pending' && <Check className="w-4 h-4 text-primary" />}
-                                </button>
-                                <button
-                                  onClick={() => handleChangeStatus(task, 'in_progress')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Clock className="w-4 h-4 text-primary" />
-                                    EM ANDAMENTO
-                                  </div>
-                                  {task.status === 'in_progress' && <Check className="w-4 h-4 text-primary" />}
-                                </button>
-                                <button
-                                  onClick={() => handleChangeStatus(task, 'completed')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <CheckCircle2 className="w-4 h-4 text-success" />
-                                    CONCLUÍDA
-                                  </div>
-                                  {task.status === 'completed' && <Check className="w-4 h-4 text-primary" />}
-                                </button>
-                              </div>
+                          >
+                            {task.status === 'completed' && <Check className="w-3 h-3" />}
+                            {task.status === 'in_progress' && (
+                              <div className="w-2 h-2 rounded-full bg-primary" />
                             )}
-                          </div>
-                          <h3 className={cn(
-                            "flex-1 text-sm",
-                            task.status === 'completed' && 'line-through text-muted-foreground'
-                          )}>
+                          </button>
+
+                          <h3
+                            className={cn(
+                              "flex-1 text-sm",
+                              task.status === 'completed' && 'line-through text-muted-foreground'
+                            )}
+                          >
                             {task.title}
                           </h3>
+
                           <div className="relative" ref={openDropdownId === task.id ? dropdownRef : null}>
                             <button
                               onClick={() => setOpenDropdownId(openDropdownId === task.id ? null : task.id)}
@@ -449,6 +425,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                             >
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
+
                             {openDropdownId === task.id && (
                               <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
                                 <button
@@ -483,6 +460,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                       Nenhuma tarefa nesta seção
                     </div>
                   )}
+
                   <button
                     onClick={() => openModalWithStatus(section.key as Task['status'])}
                     className="w-full flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-primary hover:bg-muted/30 transition-colors"
@@ -494,6 +472,18 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               )}
             </div>
           ))}
+
+          <TaskStatusMenu
+            open={!!statusMenu && !!tasks.find(t => t.id === statusMenu.taskId)}
+            anchorRect={statusMenu?.anchorRect ?? null}
+            currentStatus={(tasks.find(t => t.id === statusMenu?.taskId)?.status ?? 'pending') as TaskStatus}
+            onClose={() => setStatusMenu(null)}
+            onSelect={(next) => {
+              const selected = tasks.find(t => t.id === statusMenu?.taskId);
+              if (!selected) return;
+              handleChangeStatus(selected, next);
+            }}
+          />
         </div>
       )}
 
