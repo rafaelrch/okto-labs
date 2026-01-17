@@ -114,25 +114,55 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   };
 
   const handleClaimMission = async (mission: Mission) => {
+    if (!user?.id) {
+      toast.error('Você precisa estar logado para aceitar missões');
+      return;
+    }
+    
     try {
       await update(mission.id, {
         status: 'in_progress',
-        assigned_to: user?.id,
+        assigned_to: user.id,
         started_at: new Date().toISOString(),
       });
-      toast.success('Você aceitou a missão! Boa sorte!');
+      toast.success(
+        `🎯 Missão aceita! "${mission.title}" agora é sua responsabilidade. Vale ${mission.points} pontos!`,
+        { duration: 4000 }
+      );
     } catch (error) {
       toast.error('Erro ao aceitar missão');
     }
   };
 
   const handleCompleteMission = async (mission: Mission) => {
+    if (!user?.id) {
+      toast.error('Você precisa estar logado para concluir missões');
+      return;
+    }
+
+    // Verifica se é o usuário que aceitou a missão
+    if (mission.assigned_to !== user.id) {
+      toast.error('Apenas quem aceitou a missão pode concluí-la');
+      return;
+    }
+    
     try {
       await update(mission.id, {
         status: 'completed',
         completed_at: new Date().toISOString(),
       });
-      toast.success(`Missão concluída! +${mission.points} pontos!`);
+      
+      // Calcular total de pontos do usuário após conclusão
+      const userCompletedMissions = missions.filter(
+        m => m.assigned_to === user.id && m.status === 'completed'
+      );
+      const currentPoints = userCompletedMissions.reduce((sum, m) => sum + m.points, 0);
+      const newTotal = currentPoints + mission.points;
+      
+      toast.success(
+        `🏆 Parabéns! Missão concluída! +${mission.points} pontos adicionados à sua carteira! Total: ${newTotal} pontos`,
+        { duration: 5000 }
+      );
     } catch (error) {
       toast.error('Erro ao concluir missão');
     }
