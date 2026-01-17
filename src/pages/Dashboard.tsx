@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { 
   Users, 
-  ClipboardCheck, 
-  CheckSquare, 
+  FileCheck, 
+  Clock,
   Calendar, 
   TrendingUp, 
-  Clock,
-  ArrowRight
+  ArrowRight,
+  CheckSquare
 } from 'lucide-react';
 import { getFromStorage, Client, Content, Task } from '@/lib/storage';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -55,17 +55,23 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     setTasks(getFromStorage<Task>('tasks'));
   }, []);
 
+  // Métricas
   const activeClients = clients.filter(c => c.status === 'active').length;
+  const readyContents = contents.filter(c => c.status === 'approved').length;
   const pendingApprovals = contents.filter(c => c.status === 'pending').length;
-  const today = new Date().toISOString().split('T')[0];
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().split('T')[0];
   
-  const todayTasks = tasks.filter(t => t.dueDate === today && t.status !== 'completed').length;
-  const upcomingContents = contents.filter(c => 
-    (c.publishDate === today || c.publishDate === tomorrowStr) && c.status !== 'published'
-  );
+  const today = new Date().toISOString().split('T')[0];
+  const todayPosts = contents.filter(c => c.publishDate === today).length;
+  const todayTasks = tasks.filter(t => t.dueDate === today && t.status !== 'completed');
+
+  // Próximas publicações (aprovados para postar)
+  const upcomingPublications = contents
+    .filter(c => c.status === 'approved' && c.publishDate >= today)
+    .sort((a, b) => {
+      const dateCompare = a.publishDate.localeCompare(b.publishDate);
+      if (dateCompare !== 0) return dateCompare;
+      return a.publishTime.localeCompare(b.publishTime);
+    });
 
   return (
     <div className="space-y-6">
@@ -79,24 +85,24 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           onClick={() => onNavigate('clients')}
         />
         <MetricCard
+          title="Conteúdos Prontos"
+          value={readyContents}
+          icon={FileCheck}
+          color="bg-success/10 text-success"
+          onClick={() => onNavigate('schedule')}
+        />
+        <MetricCard
           title="Aguardando Aprovação"
           value={pendingApprovals}
-          icon={ClipboardCheck}
+          icon={Clock}
           color="bg-warning/10 text-warning"
           onClick={() => onNavigate('approvals')}
         />
         <MetricCard
-          title="Tarefas do Dia"
-          value={todayTasks}
-          icon={CheckSquare}
-          color="bg-info/10 text-info"
-          onClick={() => onNavigate('tasks')}
-        />
-        <MetricCard
-          title="Publicações Próximas"
-          value={upcomingContents.length}
+          title="Posts de Hoje"
+          value={todayPosts}
           icon={Calendar}
-          color="bg-accent/10 text-accent"
+          color="bg-info/10 text-info"
           onClick={() => onNavigate('calendar')}
         />
       </div>
@@ -106,7 +112,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-2">
-              <Clock className="w-5 h-5 text-muted-foreground" />
+              <CheckSquare className="w-5 h-5 text-muted-foreground" />
               <h2 className="font-semibold text-card-foreground">Tarefas de Hoje</h2>
             </div>
             <button 
@@ -117,19 +123,16 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </button>
           </div>
           <div className="p-4 space-y-3">
-            {tasks
-              .filter(t => t.dueDate === today && t.status !== 'completed')
-              .slice(0, 5)
-              .map(task => (
-                <div key={task.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-card-foreground truncate">{task.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{task.description}</p>
-                  </div>
-                  <StatusBadge status={task.priority} type="priority" />
+            {todayTasks.slice(0, 5).map(task => (
+              <div key={task.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm text-card-foreground truncate">{task.title}</p>
+                  <p className="text-xs text-muted-foreground truncate">{task.description}</p>
                 </div>
-              ))}
-            {tasks.filter(t => t.dueDate === today && t.status !== 'completed').length === 0 && (
+                <StatusBadge status={task.priority} type="priority" />
+              </div>
+            ))}
+            {todayTasks.length === 0 && (
               <p className="text-center text-muted-foreground py-4 text-sm">
                 Nenhuma tarefa pendente para hoje 🎉
               </p>
@@ -152,12 +155,12 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </button>
           </div>
           <div className="p-4 space-y-3">
-            {upcomingContents.slice(0, 5).map(content => {
+            {upcomingPublications.slice(0, 5).map(content => {
               const client = clients.find(c => c.id === content.clientId);
               return (
                 <div key={content.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <div
-                    className="w-2 h-10 rounded-full flex-shrink-0"
+                    className="w-1.5 h-12 rounded-full flex-shrink-0"
                     style={{ backgroundColor: client?.color || '#3B82F6' }}
                   />
                   <div className="flex-1 min-w-0">
@@ -170,7 +173,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 </div>
               );
             })}
-            {upcomingContents.length === 0 && (
+            {upcomingPublications.length === 0 && (
               <p className="text-center text-muted-foreground py-4 text-sm">
                 Nenhuma publicação agendada
               </p>
@@ -184,10 +187,10 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <h2 className="font-semibold text-card-foreground mb-4">Acesso Rápido</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: 'Novo Cliente', page: 'clients', color: 'bg-primary/10 hover:bg-primary/20 text-primary' },
-            { label: 'Nova Ideia', page: 'ideas', color: 'bg-accent/10 hover:bg-accent/20 text-accent' },
-            { label: 'Novo Conteúdo', page: 'schedule', color: 'bg-info/10 hover:bg-info/20 text-info' },
-            { label: 'Nova Tarefa', page: 'tasks', color: 'bg-warning/10 hover:bg-warning/20 text-warning' },
+            { label: 'Novo Cliente', page: 'clients', color: 'bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20' },
+            { label: 'Nova Ideia', page: 'ideas', color: 'bg-accent/10 hover:bg-accent/20 text-accent border border-accent/20' },
+            { label: 'Novo Conteúdo', page: 'schedule', color: 'bg-info/10 hover:bg-info/20 text-info border border-info/20' },
+            { label: 'Nova Tarefa', page: 'tasks', color: 'bg-warning/10 hover:bg-warning/20 text-warning border border-warning/20' },
           ].map(action => (
             <button
               key={action.label}
