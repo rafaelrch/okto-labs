@@ -15,7 +15,10 @@ import {
   Award,
   DollarSign,
   TrendingUp,
-  Gift
+  Gift,
+  Medal,
+  Zap,
+  Crown
 } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -23,15 +26,22 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
-import { useMissions, useEmployees, Mission } from '@/hooks/useSupabaseData';
-import { useAuth } from '@/hooks/useAuth';
+import { 
+  useMissionsLocal, 
+  useEmployeesLocal, 
+  Mission, 
+  POINT_VALUE, 
+  RANKS, 
+  ACHIEVEMENTS,
+  getRank,
+  getNextRank,
+  getProgressToNextRank,
+  getUnlockedAchievements
+} from '@/hooks/useMissionsLocal';
 
 interface MissionsPageProps {
   searchQuery: string;
 }
-
-// Valor de cada ponto em reais
-const POINT_VALUE = 0.50; // R$ 0,50 por ponto
 
 const difficultyLevels = [
   { value: 'easy', label: 'Fácil', color: 'bg-success/20 text-success', points: '10-50' },
@@ -48,14 +58,15 @@ const categories = [
 ];
 
 export function MissionsPage({ searchQuery }: MissionsPageProps) {
-  const { data: missions, loading, create, update, remove, error } = useMissions();
-  const { data: employees } = useEmployees();
-  const { user } = useAuth();
+  const { data: missions, loading, create, update, remove } = useMissionsLocal();
+  const { data: employees } = useEmployeesLocal();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBonusModalOpen, setIsBonusModalOpen] = useState(false);
+  const [isAchievementsModalOpen, setIsAchievementsModalOpen] = useState(false);
   const [editingMission, setEditingMission] = useState<Mission | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'in_progress' | 'completed'>('all');
   const [selectedEmployeeForBonus, setSelectedEmployeeForBonus] = useState<string | null>(null);
+  const [currentUserEmployeeId, setCurrentUserEmployeeId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -65,20 +76,31 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     deadline: '',
   });
 
-  // Calcular pontos por funcionário
+  // Calcular pontos por funcionário com rank e conquistas
   const employeePoints = useMemo(() => {
     return employees.map(emp => {
       const completedMissions = missions.filter(
         m => m.completed_by === emp.id && m.status === 'completed'
       );
+      const epicMissions = completedMissions.filter(m => m.difficulty === 'epic').length;
       const totalPoints = completedMissions.reduce((sum, m) => sum + m.points, 0);
       const bonusValue = totalPoints * POINT_VALUE;
+      const rank = getRank(totalPoints);
+      const nextRank = getNextRank(totalPoints);
+      const progressToNext = getProgressToNextRank(totalPoints);
+      const achievements = getUnlockedAchievements(completedMissions.length, totalPoints, epicMissions);
+      
       return { 
         ...emp, 
         totalPoints, 
         completedCount: completedMissions.length,
+        epicCount: epicMissions,
         bonusValue,
-        missions: completedMissions
+        missions: completedMissions,
+        rank,
+        nextRank,
+        progressToNext,
+        achievements
       };
     }).sort((a, b) => b.totalPoints - a.totalPoints);
   }, [employees, missions]);
@@ -86,6 +108,10 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   const selectedEmployee = useMemo(() => {
     return employeePoints.find(e => e.id === selectedEmployeeForBonus);
   }, [employeePoints, selectedEmployeeForBonus]);
+
+  const currentEmployee = useMemo(() => {
+    return currentUserEmployeeId ? employeePoints.find(e => e.id === currentUserEmployeeId) : null;
+  }, [employeePoints, currentUserEmployeeId]);
 
   const resetForm = () => {
     setFormData({
@@ -99,7 +125,7 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     setEditingMission(null);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     const missionData = {
@@ -115,19 +141,15 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
       completed_at: null,
     };
 
-    try {
-      if (editingMission) {
-        await update(editingMission.id, missionData);
-        toast.success('Missão atualizada!');
-      } else {
-        await create(missionData as any);
-        toast.success('Missão criada!');
-      }
-      setIsModalOpen(false);
-      resetForm();
-    } catch (err) {
-      toast.error('Erro ao salvar missão. Verifique se a tabela existe no banco.');
+    if (editingMission) {
+      update(editingMission.id, missionData);
+      toast.success('Missão atualizada!');
+    } else {
+      create(missionData);
+      toast.success('Missão criada! 🎯');
     }
+    setIsModalOpen(false);
+    resetForm();
   };
 
   const handleEdit = (mission: Mission) => {
@@ -143,56 +165,49 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     setIsModalOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await remove(id);
-      toast.success('Missão excluída!');
-    } catch {
-      toast.error('Erro ao excluir missão');
-    }
+  const handleDelete = (id: string) => {
+    remove(id);
+    toast.success('Missão excluída!');
   };
 
-  const handleClaimMission = async (mission: Mission) => {
-    const currentEmployee = employees.find(e => e.email === user?.email);
-    if (!currentEmployee) {
-      toast.error('Você precisa estar cadastrado como funcionário para aceitar missões');
+  const handleClaimMission = (mission: Mission) => {
+    if (!currentUserEmployeeId) {
+      // Selecionar funcionário se não estiver definido
+      if (employees.length > 0) {
+        setCurrentUserEmployeeId(employees[0].id);
+        update(mission.id, {
+          status: 'in_progress',
+          assigned_to: employees[0].id,
+        });
+        toast.success(`Missão iniciada por ${employees[0].name}! 🚀`);
+      } else {
+        toast.error('Nenhum funcionário cadastrado');
+      }
       return;
     }
 
-    try {
-      await update(mission.id, {
-        status: 'in_progress',
-        assigned_to: currentEmployee.id,
-      });
-      toast.success('Missão iniciada! Boa sorte! 🚀');
-    } catch {
-      toast.error('Erro ao aceitar missão');
-    }
+    update(mission.id, {
+      status: 'in_progress',
+      assigned_to: currentUserEmployeeId,
+    });
+    toast.success('Missão iniciada! Boa sorte! 🚀');
   };
 
-  const handleCompleteMission = async (mission: Mission) => {
-    try {
-      await update(mission.id, {
-        status: 'completed',
-        completed_by: mission.assigned_to,
-        completed_at: new Date().toISOString(),
-      });
-      toast.success(`Missão concluída! +${mission.points} pontos 🎉`);
-    } catch {
-      toast.error('Erro ao concluir missão');
-    }
+  const handleCompleteMission = (mission: Mission) => {
+    update(mission.id, {
+      status: 'completed',
+      completed_by: mission.assigned_to,
+      completed_at: new Date().toISOString(),
+    });
+    toast.success(`Missão concluída! +${mission.points} pontos 🎉`);
   };
 
-  const handleCancelMission = async (mission: Mission) => {
-    try {
-      await update(mission.id, {
-        status: 'available',
-        assigned_to: null,
-      });
-      toast.info('Missão liberada');
-    } catch {
-      toast.error('Erro ao liberar missão');
-    }
+  const handleCancelMission = (mission: Mission) => {
+    update(mission.id, {
+      status: 'available',
+      assigned_to: null,
+    });
+    toast.info('Missão liberada');
   };
 
   const filteredMissions = missions.filter(mission => {
@@ -220,8 +235,6 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     totalBonus: missions.filter(m => m.status === 'completed').reduce((sum, m) => sum + m.points, 0) * POINT_VALUE,
   };
 
-  const currentEmployee = employees.find(e => e.email === user?.email);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -230,44 +243,27 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     );
   }
 
-  if (error) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-6 text-center">
-          <Target className="w-12 h-12 text-destructive mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-foreground mb-2">Tabela de Missões não encontrada</h2>
-          <p className="text-muted-foreground mb-4">
-            A tabela "missions" precisa ser criada no Supabase. Execute o SQL abaixo no SQL Editor do seu Supabase:
-          </p>
-          <div className="bg-muted rounded-lg p-4 text-left text-xs font-mono overflow-x-auto">
-            <pre>{`CREATE TABLE IF NOT EXISTS public.missions (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL,
-  points INTEGER NOT NULL DEFAULT 50,
-  difficulty TEXT NOT NULL DEFAULT 'medium',
-  category TEXT NOT NULL DEFAULT 'daily',
-  status TEXT NOT NULL DEFAULT 'available',
-  deadline DATE,
-  assigned_to UUID REFERENCES public.employees(id) ON DELETE SET NULL,
-  completed_by UUID REFERENCES public.employees(id) ON DELETE SET NULL,
-  completed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE public.missions ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Permitir tudo em missões" ON public.missions
-  FOR ALL USING (true) WITH CHECK (true);`}</pre>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      {/* Header com Título */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center">
+            <Target className="w-6 h-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Sistema de Missões</h1>
+            <p className="text-sm text-muted-foreground">Complete missões, ganhe pontos e receba bonificações!</p>
+          </div>
+        </div>
+        <button
+          onClick={() => setIsAchievementsModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-yellow-500/20 to-orange-500/20 text-yellow-600 rounded-lg text-sm font-medium hover:from-yellow-500/30 hover:to-orange-500/30 transition-all"
+        >
+          <Medal className="w-4 h-4" /> Ver Conquistas
+        </button>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-card rounded-xl border border-border p-4">
@@ -306,7 +302,7 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
         <div className="bg-card rounded-xl border border-border p-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center">
-              <Coins className="w-5 h-5 text-accent" />
+              <Coins className="w-5 h-5 text-primary" />
             </div>
             <div>
               <p className="text-2xl font-bold text-card-foreground">{stats.totalPoints}</p>
@@ -329,9 +325,29 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
         </div>
       </div>
 
+      {/* Patentes/Ranks Info */}
+      <div className="bg-gradient-to-r from-purple-500/10 via-primary/10 to-yellow-500/10 rounded-xl border border-primary/20 p-4">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <Crown className="w-6 h-6 text-yellow-500" />
+            <div>
+              <p className="font-semibold text-foreground">Sistema de Patentes</p>
+              <p className="text-sm text-muted-foreground">Acumule pontos e suba de nível!</p>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {RANKS.slice(0, 5).map(rank => (
+              <div key={rank.name} className={cn("px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1", rank.color, "text-white")}>
+                <span>{rank.icon}</span> {rank.name}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Valor por ponto */}
       <div className="bg-gradient-to-r from-primary/10 via-primary/5 to-transparent rounded-xl border border-primary/20 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <Gift className="w-6 h-6 text-primary" />
             <div>
@@ -347,6 +363,32 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
           >
             Ver Bonificações
           </button>
+        </div>
+      </div>
+
+      {/* Selecionar funcionário atual */}
+      <div className="bg-card rounded-xl border border-border p-4">
+        <div className="flex items-center gap-4">
+          <User className="w-5 h-5 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Você é:</span>
+          <select
+            value={currentUserEmployeeId || ''}
+            onChange={(e) => setCurrentUserEmployeeId(e.target.value || null)}
+            className="px-3 py-1.5 bg-muted rounded-lg text-sm outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="">Selecione seu perfil...</option>
+            {employees.map(emp => (
+              <option key={emp.id} value={emp.id}>{emp.name} - {emp.role}</option>
+            ))}
+          </select>
+          {currentEmployee && (
+            <div className="flex items-center gap-2 ml-auto">
+              <span className={cn("px-3 py-1.5 rounded-lg text-xs font-medium text-white", currentEmployee.rank.color)}>
+                {currentEmployee.rank.icon} {currentEmployee.rank.name}
+              </span>
+              <span className="text-sm font-bold text-primary">{currentEmployee.totalPoints} pts</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -372,7 +414,7 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
                     setIsBonusModalOpen(true);
                   }}
                   className={cn(
-                    "flex-shrink-0 flex items-center gap-3 p-4 rounded-xl min-w-[240px] transition-all hover:scale-105",
+                    "flex-shrink-0 flex flex-col items-center gap-2 p-4 rounded-xl min-w-[160px] transition-all hover:scale-105",
                     index === 0 ? "bg-gradient-to-br from-warning/20 to-warning/5 border-2 border-warning/40 shadow-lg" :
                     index === 1 ? "bg-gradient-to-br from-gray-300/20 to-gray-300/5 border border-gray-400/30" :
                     index === 2 ? "bg-gradient-to-br from-orange-400/20 to-orange-400/5 border border-orange-400/30" : 
@@ -380,18 +422,20 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
                   )}
                 >
                   <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm",
+                    "w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg",
                     index === 0 ? "bg-warning text-warning-foreground" :
                     index === 1 ? "bg-gray-400 text-white" :
                     index === 2 ? "bg-orange-500 text-white" : "bg-muted-foreground/30 text-foreground"
                   )}>
                     {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
                   </div>
-                  <div className="flex-1 min-w-0 text-left">
-                    <p className="font-medium text-sm text-foreground truncate">{emp.name}</p>
-                    <p className="text-xs text-muted-foreground">{emp.completedCount} missões</p>
+                  <div className="text-center">
+                    <p className="font-medium text-sm text-foreground truncate max-w-[120px]">{emp.name}</p>
+                    <span className={cn("text-xs px-2 py-0.5 rounded mt-1 inline-block text-white", emp.rank.color)}>
+                      {emp.rank.icon} {emp.rank.name}
+                    </span>
                   </div>
-                  <div className="text-right">
+                  <div className="text-center">
                     <div className="flex items-center gap-1 text-primary font-bold">
                       <Star className="w-4 h-4 fill-primary" />
                       {emp.totalPoints}
@@ -400,39 +444,84 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
                       R$ {emp.bonusValue.toFixed(2).replace('.', ',')}
                     </p>
                   </div>
+                  {emp.achievements.length > 0 && (
+                    <div className="flex -space-x-1">
+                      {emp.achievements.slice(0, 3).map(a => (
+                        <span key={a.id} className="text-sm" title={a.name}>{a.icon}</span>
+                      ))}
+                      {emp.achievements.length > 3 && (
+                        <span className="text-xs text-muted-foreground">+{emp.achievements.length - 3}</span>
+                      )}
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
           ) : (
             <p className="text-muted-foreground text-sm text-center py-4">
-              Nenhum funcionário cadastrado. Adicione funcionários na página de Funcionários.
+              Os funcionários aparecerão automaticamente ao completar missões.
             </p>
           )}
         </div>
       </div>
 
-      {/* My Points - se o usuário logado for um funcionário */}
+      {/* Meus Pontos - se tiver funcionário selecionado */}
       {currentEmployee && (
         <div className="bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl border border-primary/20 p-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center">
-                <User className="w-7 h-7 text-primary" />
+              <div className="w-16 h-16 rounded-xl bg-primary/20 flex items-center justify-center text-2xl">
+                {currentEmployee.rank.icon}
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Meus Pontos</p>
-                <p className="text-3xl font-bold text-foreground">
-                  {employeePoints.find(e => e.id === currentEmployee.id)?.totalPoints || 0}
+                <p className="text-3xl font-bold text-foreground">{currentEmployee.totalPoints}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={cn("px-2 py-0.5 rounded text-xs font-medium text-white", currentEmployee.rank.color)}>
+                    {currentEmployee.rank.name}
+                  </span>
+                  {currentEmployee.nextRank && (
+                    <span className="text-xs text-muted-foreground">
+                      → {currentEmployee.nextRank.minPoints - currentEmployee.totalPoints} pts para {currentEmployee.nextRank.name}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              {/* Progress bar to next rank */}
+              {currentEmployee.nextRank && (
+                <div className="w-32">
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary rounded-full transition-all"
+                      style={{ width: `${currentEmployee.progressToNext}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 text-center">{currentEmployee.progressToNext}%</p>
+                </div>
+              )}
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">Minha Bonificação</p>
+                <p className="text-2xl font-bold text-success">
+                  R$ {currentEmployee.bonusValue.toFixed(2).replace('.', ',')}
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-muted-foreground">Minha Bonificação</p>
-              <p className="text-2xl font-bold text-success">
-                R$ {((employeePoints.find(e => e.id === currentEmployee.id)?.totalPoints || 0) * POINT_VALUE).toFixed(2).replace('.', ',')}
-              </p>
-            </div>
           </div>
+          {/* Minhas Conquistas */}
+          {currentEmployee.achievements.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-primary/20">
+              <p className="text-sm font-medium text-foreground mb-2">Minhas Conquistas</p>
+              <div className="flex gap-2 flex-wrap">
+                {currentEmployee.achievements.map(a => (
+                  <span key={a.id} className="px-3 py-1.5 bg-yellow-500/10 text-yellow-600 rounded-lg text-sm" title={a.description}>
+                    {a.icon} {a.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -461,7 +550,7 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
         </div>
         <button
           onClick={() => { resetForm(); setIsModalOpen(true); }}
-          className="flex items-center gap-2 px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
         >
           <Plus className="w-4 h-4" /> Nova Missão
         </button>
@@ -482,13 +571,13 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredMissions.map(mission => {
             const diffStyle = getDifficultyStyle(mission.difficulty);
-            const isAssignedToMe = mission.assigned_to === currentEmployee?.id;
+            const isAssignedToMe = mission.assigned_to === currentUserEmployeeId;
 
             return (
               <div 
                 key={mission.id} 
                 className={cn(
-                  "bg-card rounded-xl border overflow-hidden card-hover",
+                  "bg-card rounded-xl border overflow-hidden transition-all hover:shadow-lg",
                   mission.status === 'completed' ? "border-success/30 bg-success/5" :
                   mission.status === 'in_progress' ? "border-warning/30" : "border-border"
                 )}
@@ -697,7 +786,7 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
             </button>
             <button
               type="submit"
-              className="px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               {editingMission ? 'Salvar' : 'Criar Missão'}
             </button>
@@ -713,23 +802,64 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
         size="lg"
       >
         <div className="space-y-6">
-          {/* Resumo geral ou por funcionário */}
           {selectedEmployee ? (
             <>
-              {/* Perfil do funcionário */}
+              {/* Perfil do funcionário com patente */}
               <div className="flex items-center gap-4 p-4 bg-muted/50 rounded-xl">
-                <div className="w-16 h-16 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-2xl font-bold">
-                  {selectedEmployee.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                <div className={cn("w-16 h-16 rounded-xl flex items-center justify-center text-3xl", selectedEmployee.rank.color)}>
+                  {selectedEmployee.rank.icon}
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-foreground">{selectedEmployee.name}</h3>
-                  <p className="text-sm text-muted-foreground">{selectedEmployee.role}</p>
+                  <div className="flex items-center gap-2">
+                    <span className={cn("px-2 py-0.5 rounded text-xs font-medium text-white", selectedEmployee.rank.color)}>
+                      {selectedEmployee.rank.name}
+                    </span>
+                    <span className="text-sm text-muted-foreground">{selectedEmployee.role}</span>
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="text-3xl font-bold text-primary">{selectedEmployee.totalPoints}</p>
                   <p className="text-sm text-muted-foreground">pontos</p>
                 </div>
               </div>
+
+              {/* Progress to next rank */}
+              {selectedEmployee.nextRank && (
+                <div className="bg-muted/30 rounded-xl p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-muted-foreground">Progresso para {selectedEmployee.nextRank.name}</span>
+                    <span className="text-sm font-medium">{selectedEmployee.progressToNext}%</span>
+                  </div>
+                  <div className="h-3 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className={cn("h-full rounded-full transition-all", selectedEmployee.rank.color)}
+                      style={{ width: `${selectedEmployee.progressToNext}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Faltam {selectedEmployee.nextRank.minPoints - selectedEmployee.totalPoints} pontos
+                  </p>
+                </div>
+              )}
+
+              {/* Conquistas */}
+              {selectedEmployee.achievements.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-foreground mb-3">Conquistas Desbloqueadas</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedEmployee.achievements.map(a => (
+                      <div key={a.id} className="flex items-center gap-2 p-2 bg-yellow-500/10 rounded-lg">
+                        <span className="text-2xl">{a.icon}</span>
+                        <div>
+                          <p className="text-sm font-medium">{a.name}</p>
+                          <p className="text-xs text-muted-foreground">{a.description}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Valor da bonificação */}
               <div className="bg-gradient-to-r from-success/20 to-success/5 rounded-xl p-6 text-center">
@@ -769,7 +899,7 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
             </>
           ) : (
             <>
-              {/* Resumo geral de todos */}
+              {/* Resumo geral */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-muted/50 rounded-xl p-4 text-center">
                   <TrendingUp className="w-8 h-8 text-primary mx-auto mb-2" />
@@ -796,12 +926,12 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
                       onClick={() => setSelectedEmployeeForBonus(emp.id)}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
-                          {index + 1}
+                        <span className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white", emp.rank.color)}>
+                          {emp.rank.icon}
                         </span>
                         <div>
                           <p className="font-medium text-sm">{emp.name}</p>
-                          <p className="text-xs text-muted-foreground">{emp.completedCount} missões</p>
+                          <p className="text-xs text-muted-foreground">{emp.rank.name} • {emp.completedCount} missões</p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -821,27 +951,69 @@ CREATE POLICY "Permitir tudo em missões" ON public.missions
                 <p className="text-sm text-muted-foreground">
                   1 ponto = <span className="text-primary font-bold">R$ {POINT_VALUE.toFixed(2).replace('.', ',')}</span>
                 </p>
-                <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-                  <div className="bg-muted rounded p-2">
-                    <p className="font-bold">50 pts</p>
-                    <p className="text-success">R$ {(50 * POINT_VALUE).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-muted rounded p-2">
-                    <p className="font-bold">100 pts</p>
-                    <p className="text-success">R$ {(100 * POINT_VALUE).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-muted rounded p-2">
-                    <p className="font-bold">200 pts</p>
-                    <p className="text-success">R$ {(200 * POINT_VALUE).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-muted rounded p-2">
-                    <p className="font-bold">500 pts</p>
-                    <p className="text-success">R$ {(500 * POINT_VALUE).toFixed(2)}</p>
-                  </div>
-                </div>
               </div>
             </>
           )}
+        </div>
+      </Modal>
+
+      {/* Achievements Modal */}
+      <Modal
+        isOpen={isAchievementsModalOpen}
+        onClose={() => setIsAchievementsModalOpen(false)}
+        title="Conquistas Disponíveis"
+        size="lg"
+      >
+        <div className="space-y-4">
+          <p className="text-muted-foreground text-sm">Complete missões para desbloquear conquistas e ganhar reconhecimento!</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {ACHIEVEMENTS.map(achievement => {
+              const isUnlocked = currentEmployee?.achievements.some(a => a.id === achievement.id);
+              return (
+                <div 
+                  key={achievement.id}
+                  className={cn(
+                    "p-4 rounded-xl border transition-all",
+                    isUnlocked 
+                      ? "bg-yellow-500/10 border-yellow-500/30" 
+                      : "bg-muted/30 border-border opacity-60"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">{achievement.icon}</span>
+                    <div>
+                      <p className="font-semibold text-foreground">{achievement.name}</p>
+                      <p className="text-sm text-muted-foreground">{achievement.description}</p>
+                    </div>
+                    {isUnlocked && (
+                      <CheckCircle2 className="w-5 h-5 text-success ml-auto" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          {/* Patentes */}
+          <div className="mt-6 pt-4 border-t border-border">
+            <h4 className="font-semibold text-foreground mb-4">Sistema de Patentes</h4>
+            <div className="space-y-2">
+              {RANKS.map(rank => (
+                <div key={rank.name} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className={cn("w-10 h-10 rounded-lg flex items-center justify-center text-white text-xl", rank.color)}>
+                      {rank.icon}
+                    </span>
+                    <span className="font-medium">{rank.name}</span>
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {rank.minPoints} - {rank.maxPoints === Infinity ? '∞' : rank.maxPoints} pontos
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </Modal>
     </div>
