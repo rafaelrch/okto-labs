@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Eye, Archive, Instagram, Facebook, Linkedin } from 'lucide-react';
-import { getFromStorage, saveToStorage, Client, Employee, generateId } from '@/lib/storage';
+import { useState } from 'react';
+import { Plus, Edit2, Trash2, Eye, Archive, Instagram, Facebook, Linkedin, Loader2 } from 'lucide-react';
+import { useClients, useEmployees, Client } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
@@ -16,8 +16,8 @@ const defaultColors = [
 ];
 
 export function ClientsPage({ searchQuery }: ClientsPageProps) {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const { data: clients, loading, create, update, remove } = useClients();
+  const { data: employees } = useEmployees();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [viewingClient, setViewingClient] = useState<Client | null>(null);
@@ -30,16 +30,11 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     facebook: '',
     tiktok: '',
     linkedin: '',
-    responsibleId: '',
+    responsible_id: '',
     color: '#3B82F6',
-    contractStart: '',
+    contract_start: '',
     notes: '',
   });
-
-  useEffect(() => {
-    setClients(getFromStorage<Client>('clients'));
-    setEmployees(getFromStorage<Employee>('employees'));
-  }, []);
 
   const resetForm = () => {
     setFormData({
@@ -50,19 +45,18 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
       facebook: '',
       tiktok: '',
       linkedin: '',
-      responsibleId: employees[0]?.id || '',
+      responsible_id: employees[0]?.id || '',
       color: defaultColors[Math.floor(Math.random() * defaultColors.length)],
-      contractStart: new Date().toISOString().split('T')[0],
+      contract_start: new Date().toISOString().split('T')[0],
       notes: '',
     });
     setEditingClient(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newClient: Client = {
-      id: editingClient?.id || generateId(),
+    const clientData = {
       name: formData.name,
       segment: formData.segment,
       logo: formData.logo,
@@ -72,27 +66,26 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
         tiktok: formData.tiktok || undefined,
         linkedin: formData.linkedin || undefined,
       },
-      responsibleId: formData.responsibleId,
+      responsible_id: formData.responsible_id || null,
       color: formData.color,
-      status: editingClient?.status || 'active',
-      contractStart: formData.contractStart,
+      status: editingClient?.status || 'active' as const,
+      contract_start: formData.contract_start || null,
       notes: formData.notes,
-      createdAt: editingClient?.createdAt || new Date().toISOString(),
     };
 
-    let updatedClients: Client[];
-    if (editingClient) {
-      updatedClients = clients.map(c => c.id === editingClient.id ? newClient : c);
-      toast.success('Cliente atualizado!');
-    } else {
-      updatedClients = [newClient, ...clients];
-      toast.success('Cliente cadastrado!');
+    try {
+      if (editingClient) {
+        await update(editingClient.id, clientData);
+        toast.success('Cliente atualizado!');
+      } else {
+        await create(clientData as any);
+        toast.success('Cliente cadastrado!');
+      }
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      toast.error('Erro ao salvar cliente');
     }
-
-    setClients(updatedClients);
-    saveToStorage('clients', updatedClients);
-    setIsModalOpen(false);
-    resetForm();
   };
 
   const handleEdit = (client: Client) => {
@@ -100,32 +93,29 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
       name: client.name,
       segment: client.segment,
       logo: client.logo,
-      instagram: client.socials.instagram || '',
-      facebook: client.socials.facebook || '',
-      tiktok: client.socials.tiktok || '',
-      linkedin: client.socials.linkedin || '',
-      responsibleId: client.responsibleId,
+      instagram: client.socials?.instagram || '',
+      facebook: client.socials?.facebook || '',
+      tiktok: client.socials?.tiktok || '',
+      linkedin: client.socials?.linkedin || '',
+      responsible_id: client.responsible_id || '',
       color: client.color,
-      contractStart: client.contractStart,
+      contract_start: client.contract_start || '',
       notes: client.notes,
     });
     setEditingClient(client);
     setIsModalOpen(true);
   };
 
-  const toggleStatus = (id: string) => {
-    const updatedClients = clients.map(c =>
-      c.id === id ? { ...c, status: c.status === 'active' ? 'inactive' as const : 'active' as const } : c
-    );
-    setClients(updatedClients);
-    saveToStorage('clients', updatedClients);
-    toast.success('Status atualizado!');
+  const toggleStatus = async (id: string) => {
+    const client = clients.find(c => c.id === id);
+    if (client) {
+      await update(id, { status: client.status === 'active' ? 'inactive' : 'active' });
+      toast.success('Status atualizado!');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    const updatedClients = clients.filter(c => c.id !== id);
-    setClients(updatedClients);
-    saveToStorage('clients', updatedClients);
+  const handleDelete = async (id: string) => {
+    await remove(id);
     toast.success('Cliente excluído!');
   };
 
@@ -137,13 +127,22 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     return matchesSearch && matchesStatus;
   });
 
-  const getResponsibleName = (id: string) => {
+  const getResponsibleName = (id?: string) => {
+    if (!id) return 'Não atribuído';
     return employees.find(e => e.id === id)?.name || 'Não atribuído';
   };
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -216,24 +215,24 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
                     <h3 className="font-semibold text-card-foreground truncate">{client.name}</h3>
                     <p className="text-sm text-muted-foreground">{client.segment}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Resp: {getResponsibleName(client.responsibleId)}
+                      Resp: {getResponsibleName(client.responsible_id)}
                     </p>
                   </div>
                 </div>
 
                 {/* Social Links */}
                 <div className="flex items-center gap-2 mb-4">
-                  {client.socials.instagram && (
+                  {client.socials?.instagram && (
                     <span className="p-1.5 bg-muted rounded-lg">
                       <Instagram className="w-4 h-4 text-muted-foreground" />
                     </span>
                   )}
-                  {client.socials.facebook && (
+                  {client.socials?.facebook && (
                     <span className="p-1.5 bg-muted rounded-lg">
                       <Facebook className="w-4 h-4 text-muted-foreground" />
                     </span>
                   )}
-                  {client.socials.linkedin && (
+                  {client.socials?.linkedin && (
                     <span className="p-1.5 bg-muted rounded-lg">
                       <Linkedin className="w-4 h-4 text-muted-foreground" />
                     </span>
@@ -385,8 +384,8 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Responsável</label>
               <select
-                value={formData.responsibleId}
-                onChange={(e) => setFormData({ ...formData, responsibleId: e.target.value })}
+                value={formData.responsible_id}
+                onChange={(e) => setFormData({ ...formData, responsible_id: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Selecione...</option>
@@ -399,8 +398,8 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
               <label className="block text-sm font-medium text-foreground mb-1">Data de Início</label>
               <input
                 type="date"
-                value={formData.contractStart}
-                onChange={(e) => setFormData({ ...formData, contractStart: e.target.value })}
+                value={formData.contract_start}
+                onChange={(e) => setFormData({ ...formData, contract_start: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -459,44 +458,26 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
                 </div>
               )}
               <div>
-                <h3 className="text-xl font-semibold">{viewingClient.name}</h3>
+                <h3 className="text-xl font-semibold text-foreground">{viewingClient.name}</h3>
                 <p className="text-muted-foreground">{viewingClient.segment}</p>
               </div>
             </div>
-
+            
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Responsável</p>
-                <p className="font-medium">{getResponsibleName(viewingClient.responsibleId)}</p>
+                <p className="font-medium">{getResponsibleName(viewingClient.responsible_id)}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Início do Contrato</p>
-                <p className="font-medium">{viewingClient.contractStart}</p>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground mb-2">Redes Sociais</p>
-              <div className="flex flex-wrap gap-2">
-                {viewingClient.socials.instagram && (
-                  <span className="px-3 py-1 bg-muted rounded-full text-sm">{viewingClient.socials.instagram}</span>
-                )}
-                {viewingClient.socials.facebook && (
-                  <span className="px-3 py-1 bg-muted rounded-full text-sm">{viewingClient.socials.facebook}</span>
-                )}
-                {viewingClient.socials.linkedin && (
-                  <span className="px-3 py-1 bg-muted rounded-full text-sm">{viewingClient.socials.linkedin}</span>
-                )}
-                {viewingClient.socials.tiktok && (
-                  <span className="px-3 py-1 bg-muted rounded-full text-sm">{viewingClient.socials.tiktok}</span>
-                )}
+                <p className="font-medium">{viewingClient.contract_start || 'Não informado'}</p>
               </div>
             </div>
 
             {viewingClient.notes && (
               <div>
-                <p className="text-sm text-muted-foreground mb-1">Observações</p>
-                <p className="text-sm">{viewingClient.notes}</p>
+                <p className="text-sm text-muted-foreground">Observações</p>
+                <p className="font-medium">{viewingClient.notes}</p>
               </div>
             )}
           </div>

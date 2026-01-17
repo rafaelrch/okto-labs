@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit2, Trash2, Copy, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react';
-import { getFromStorage, saveToStorage, Content, Client, Employee, generateId } from '@/lib/storage';
+import { useState, useMemo } from 'react';
+import { Plus, Edit2, Trash2, Copy, ChevronLeft, ChevronRight, CalendarDays, Loader2 } from 'lucide-react';
+import { useContents, useClients, useEmployees, Content } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -38,9 +38,9 @@ interface SchedulePageProps {
 type WeekFilter = 'all' | 'week1' | 'week2' | 'week3' | 'week4' | 'week5' | 'custom';
 
 export function SchedulePage({ searchQuery }: SchedulePageProps) {
-  const [contents, setContents] = useState<Content[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const { data: contents, loading, create, update, remove } = useContents();
+  const { data: clients } = useClients();
+  const { data: employees } = useEmployees();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingContent, setEditingContent] = useState<Content | null>(null);
   const [filterClient, setFilterClient] = useState<string>('');
@@ -49,25 +49,19 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all');
   const [customDate, setCustomDate] = useState<string>('');
   const [formData, setFormData] = useState({
-    clientId: '',
+    client_id: '',
     type: 'post' as Content['type'],
     title: '',
     description: '',
-    publishDate: '',
-    publishTime: '10:00',
-    socialNetwork: 'instagram' as Content['socialNetwork'],
-    responsibleId: '',
+    publish_date: '',
+    publish_time: '10:00',
+    social_network: 'instagram' as Content['social_network'],
+    responsible_id: '',
     status: 'draft' as Content['status'],
     files: '',
     copy: '',
     hashtags: '',
   });
-
-  useEffect(() => {
-    setContents(getFromStorage<Content>('contents'));
-    setClients(getFromStorage<Client>('clients'));
-    setEmployees(getFromStorage<Employee>('employees'));
-  }, []);
 
   // Calcular as semanas do mês atual
   const weeksOfMonth = useMemo(() => {
@@ -96,14 +90,14 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
     const activeClients = clients.filter(c => c.status === 'active');
     const activeEmployees = employees.filter(e => e.status === 'active');
     setFormData({
-      clientId: activeClients[0]?.id || '',
+      client_id: activeClients[0]?.id || '',
       type: 'post',
       title: '',
       description: '',
-      publishDate: format(currentMonth, 'yyyy-MM-dd'),
-      publishTime: '10:00',
-      socialNetwork: 'instagram',
-      responsibleId: activeEmployees[0]?.id || '',
+      publish_date: format(currentMonth, 'yyyy-MM-dd'),
+      publish_time: '10:00',
+      social_network: 'instagram',
+      responsible_id: activeEmployees[0]?.id || '',
       status: 'draft',
       files: '',
       copy: '',
@@ -112,51 +106,49 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
     setEditingContent(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newContent: Content = {
-      id: editingContent?.id || generateId(),
-      clientId: formData.clientId,
+    const contentData = {
+      client_id: formData.client_id || null,
       type: formData.type,
       title: formData.title,
       description: formData.description,
-      publishDate: formData.publishDate,
-      publishTime: formData.publishTime,
-      socialNetwork: formData.socialNetwork,
-      responsibleId: formData.responsibleId,
+      publish_date: formData.publish_date || null,
+      publish_time: formData.publish_time,
+      social_network: formData.social_network,
+      responsible_id: formData.responsible_id || null,
       status: formData.status,
       files: formData.files.split(',').map(f => f.trim()).filter(Boolean),
       copy: formData.copy,
       hashtags: formData.hashtags.split(',').map(h => h.trim().replace('#', '')).filter(Boolean),
-      createdAt: editingContent?.createdAt || new Date().toISOString(),
     };
 
-    let updatedContents: Content[];
-    if (editingContent) {
-      updatedContents = contents.map(c => c.id === editingContent.id ? newContent : c);
-      toast.success('Conteúdo atualizado!');
-    } else {
-      updatedContents = [newContent, ...contents];
-      toast.success('Conteúdo criado!');
+    try {
+      if (editingContent) {
+        await update(editingContent.id, contentData);
+        toast.success('Conteúdo atualizado!');
+      } else {
+        await create(contentData as any);
+        toast.success('Conteúdo criado!');
+      }
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      toast.error('Erro ao salvar conteúdo');
     }
-
-    setContents(updatedContents);
-    saveToStorage('contents', updatedContents);
-    setIsModalOpen(false);
-    resetForm();
   };
 
   const handleEdit = (content: Content) => {
     setFormData({
-      clientId: content.clientId,
+      client_id: content.client_id || '',
       type: content.type,
       title: content.title,
       description: content.description,
-      publishDate: content.publishDate,
-      publishTime: content.publishTime,
-      socialNetwork: content.socialNetwork,
-      responsibleId: content.responsibleId,
+      publish_date: content.publish_date || '',
+      publish_time: content.publish_time,
+      social_network: content.social_network,
+      responsible_id: content.responsible_id || '',
       status: content.status,
       files: content.files.join(', '),
       copy: content.copy,
@@ -166,24 +158,26 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
     setIsModalOpen(true);
   };
 
-  const handleDuplicate = (content: Content) => {
-    const duplicated: Content = {
-      ...content,
-      id: generateId(),
+  const handleDuplicate = async (content: Content) => {
+    await create({
+      client_id: content.client_id,
+      type: content.type,
       title: `${content.title} (Cópia)`,
+      description: content.description,
+      publish_date: content.publish_date,
+      publish_time: content.publish_time,
+      social_network: content.social_network,
+      responsible_id: content.responsible_id,
       status: 'draft',
-      createdAt: new Date().toISOString(),
-    };
-    const updatedContents = [duplicated, ...contents];
-    setContents(updatedContents);
-    saveToStorage('contents', updatedContents);
+      files: content.files,
+      copy: content.copy,
+      hashtags: content.hashtags,
+    } as any);
     toast.success('Conteúdo duplicado!');
   };
 
-  const handleDelete = (id: string) => {
-    const updatedContents = contents.filter(c => c.id !== id);
-    setContents(updatedContents);
-    saveToStorage('contents', updatedContents);
+  const handleDelete = async (id: string) => {
+    await remove(id);
     toast.success('Conteúdo excluído!');
   };
 
@@ -202,7 +196,8 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   // Filtrar conteúdos pelo mês atual e outros filtros
   const filteredContents = useMemo(() => {
     return contents.filter(content => {
-      const contentDate = parseISO(content.publishDate);
+      if (!content.publish_date) return false;
+      const contentDate = parseISO(content.publish_date);
       
       // Filtro por mês
       const isInMonth = isSameMonth(contentDate, currentMonth);
@@ -220,25 +215,25 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
 
       // Filtro por data específica
       if (weekFilter === 'custom' && customDate) {
-        if (content.publishDate !== customDate) return false;
+        if (content.publish_date !== customDate) return false;
       }
 
       // Outros filtros
       const matchesSearch = 
         content.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         content.copy.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesClient = !filterClient || content.clientId === filterClient;
+      const matchesClient = !filterClient || content.client_id === filterClient;
       const matchesStatus = !filterStatus || content.status === filterStatus;
       
       return matchesSearch && matchesClient && matchesStatus;
-    }).sort((a, b) => new Date(a.publishDate).getTime() - new Date(b.publishDate).getTime());
+    }).sort((a, b) => new Date(a.publish_date || '').getTime() - new Date(b.publish_date || '').getTime());
   }, [contents, currentMonth, weekFilter, customDate, searchQuery, filterClient, filterStatus, weeksOfMonth]);
 
   // Agrupar conteúdos por data
   const groupedByDate = useMemo(() => {
     const groups: { [key: string]: Content[] } = {};
     filteredContents.forEach(content => {
-      const dateKey = content.publishDate;
+      const dateKey = content.publish_date || '';
       if (!groups[dateKey]) {
         groups[dateKey] = [];
       }
@@ -247,11 +242,19 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
     return groups;
   }, [filteredContents]);
 
-  const getClientName = (id: string) => clients.find(c => c.id === id)?.name || 'Cliente não encontrado';
-  const getClientColor = (id: string) => clients.find(c => c.id === id)?.color || '#3B82F6';
-  const getEmployeeName = (id: string) => employees.find(e => e.id === id)?.name || 'Não atribuído';
+  const getClientName = (id?: string | null) => id ? clients.find(c => c.id === id)?.name || 'Cliente não encontrado' : 'Sem cliente';
+  const getClientColor = (id?: string | null) => id ? clients.find(c => c.id === id)?.color || '#3B82F6' : '#3B82F6';
+  const getEmployeeName = (id?: string | null) => id ? employees.find(e => e.id === id)?.name || 'Não atribuído' : 'Não atribuído';
 
   const monthName = format(currentMonth, "MMMM 'de' yyyy", { locale: ptBR });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -392,14 +395,14 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                     <div className="flex items-start gap-4">
                       <div
                         className="w-1 h-full min-h-[80px] rounded-full flex-shrink-0"
-                        style={{ backgroundColor: getClientColor(content.clientId) }}
+                        style={{ backgroundColor: getClientColor(content.client_id) }}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-4 mb-2">
                           <div>
                             <h3 className="font-semibold text-card-foreground">{content.title}</h3>
                             <p className="text-sm text-muted-foreground">
-                              {getClientName(content.clientId)} • {contentTypes.find(t => t.value === content.type)?.label}
+                              {getClientName(content.client_id)} • {contentTypes.find(t => t.value === content.type)?.label}
                             </p>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
@@ -410,9 +413,9 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                         <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{content.copy}</p>
 
                         <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                          <span>🕐 {content.publishTime}</span>
-                          <span>📱 {socialNetworks.find(s => s.value === content.socialNetwork)?.label}</span>
-                          <span>👤 {getEmployeeName(content.responsibleId)}</span>
+                          <span>🕐 {content.publish_time}</span>
+                          <span>📱 {socialNetworks.find(s => s.value === content.social_network)?.label}</span>
+                          <span>👤 {getEmployeeName(content.responsible_id)}</span>
                         </div>
 
                         {content.hashtags.length > 0 && (
@@ -461,7 +464,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
         isOpen={isModalOpen}
         onClose={() => { setIsModalOpen(false); resetForm(); }}
         title={editingContent ? 'Editar Conteúdo' : 'Novo Conteúdo'}
-        size="xl"
+        size="lg"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -469,8 +472,8 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
               <label className="block text-sm font-medium text-foreground mb-1">Cliente *</label>
               <select
                 required
-                value={formData.clientId}
-                onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+                value={formData.client_id}
+                onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Selecione...</option>
@@ -486,8 +489,8 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                 onChange={(e) => setFormData({ ...formData, type: e.target.value as Content['type'] })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
-                {contentTypes.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                {contentTypes.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
                 ))}
               </select>
             </div>
@@ -505,7 +508,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Descrição/Roteiro</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Descrição</label>
             <textarea
               rows={2}
               value={formData.description}
@@ -514,13 +517,13 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Data de Publicação</label>
               <input
                 type="date"
-                value={formData.publishDate}
-                onChange={(e) => setFormData({ ...formData, publishDate: e.target.value })}
+                value={formData.publish_date}
+                onChange={(e) => setFormData({ ...formData, publish_date: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -528,20 +531,36 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
               <label className="block text-sm font-medium text-foreground mb-1">Horário</label>
               <input
                 type="time"
-                value={formData.publishTime}
-                onChange={(e) => setFormData({ ...formData, publishTime: e.target.value })}
+                value={formData.publish_time}
+                onChange={(e) => setFormData({ ...formData, publish_time: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Rede Social</label>
               <select
-                value={formData.socialNetwork}
-                onChange={(e) => setFormData({ ...formData, socialNetwork: e.target.value as Content['socialNetwork'] })}
+                value={formData.social_network}
+                onChange={(e) => setFormData({ ...formData, social_network: e.target.value as Content['social_network'] })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
-                {socialNetworks.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
+                {socialNetworks.map(network => (
+                  <option key={network.value} value={network.value}>{network.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Responsável</label>
+              <select
+                value={formData.responsible_id}
+                onChange={(e) => setFormData({ ...formData, responsible_id: e.target.value })}
+                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">Selecione...</option>
+                {employees.filter(e => e.status === 'active').map(emp => (
+                  <option key={emp.id} value={emp.id}>{emp.name}</option>
                 ))}
               </select>
             </div>
@@ -552,29 +571,15 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                 onChange={(e) => setFormData({ ...formData, status: e.target.value as Content['status'] })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
-                {contentStatuses.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
+                {contentStatuses.map(st => (
+                  <option key={st.value} value={st.value}>{st.label}</option>
                 ))}
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Responsável</label>
-            <select
-              value={formData.responsibleId}
-              onChange={(e) => setFormData({ ...formData, responsibleId: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="">Selecione...</option>
-              {employees.filter(e => e.status === 'active').map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.name} - {emp.role}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Copy/Legenda</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Copy / Legenda</label>
             <textarea
               rows={3}
               value={formData.copy}
@@ -583,42 +588,30 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Hashtags (separadas por vírgula)</label>
-              <input
-                type="text"
-                value={formData.hashtags}
-                onChange={(e) => setFormData({ ...formData, hashtags: e.target.value })}
-                placeholder="cafe, receita, lifestyle"
-                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Arquivos (nomes separados por vírgula)</label>
-              <input
-                type="text"
-                value={formData.files}
-                onChange={(e) => setFormData({ ...formData, files: e.target.value })}
-                placeholder="video.mp4, imagem.jpg"
-                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Hashtags (separadas por vírgula)</label>
+            <input
+              type="text"
+              value={formData.hashtags}
+              onChange={(e) => setFormData({ ...formData, hashtags: e.target.value })}
+              placeholder="marketing, redessociais, conteudo"
+              className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="flex justify-end gap-3 pt-4">
             <button
               type="button"
               onClick={() => { setIsModalOpen(false); resetForm(); }}
-              className="flex-1 px-4 py-2 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 btn-primary-gradient rounded-lg font-medium"
+              className="px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
             >
-              {editingContent ? 'Salvar' : 'Criar'}
+              {editingContent ? 'Salvar' : 'Criar Conteúdo'}
             </button>
           </div>
         </form>

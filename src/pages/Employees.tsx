@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Eye, Archive, Mail, Phone } from 'lucide-react';
-import { getFromStorage, saveToStorage, Employee, Client, Task, Content, generateId } from '@/lib/storage';
+import { useState } from 'react';
+import { Plus, Edit2, Trash2, Eye, Archive, Mail, Phone, Loader2 } from 'lucide-react';
+import { useEmployees, useClients, useTasks, useContents, Employee } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
@@ -24,10 +24,10 @@ const roles = [
 ];
 
 export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [contents, setContents] = useState<Content[]>([]);
+  const { data: employees, loading, create, update, remove } = useEmployees();
+  const { data: clients } = useClients();
+  const { data: tasks } = useTasks();
+  const { data: contents } = useContents();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
@@ -38,16 +38,9 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
     email: '',
     phone: '',
     avatar: '',
-    hireDate: '',
+    hire_date: '',
     skills: '',
   });
-
-  useEffect(() => {
-    setEmployees(getFromStorage<Employee>('employees'));
-    setClients(getFromStorage<Client>('clients'));
-    setTasks(getFromStorage<Task>('tasks'));
-    setContents(getFromStorage<Content>('contents'));
-  }, []);
 
   const resetForm = () => {
     setFormData({
@@ -56,41 +49,39 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
       email: '',
       phone: '',
       avatar: '',
-      hireDate: new Date().toISOString().split('T')[0],
+      hire_date: new Date().toISOString().split('T')[0],
       skills: '',
     });
     setEditingEmployee(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newEmployee: Employee = {
-      id: editingEmployee?.id || generateId(),
+    const employeeData = {
       name: formData.name,
       role: formData.role,
       email: formData.email,
       phone: formData.phone,
       avatar: formData.avatar,
-      hireDate: formData.hireDate,
-      status: editingEmployee?.status || 'active',
+      hire_date: formData.hire_date || null,
+      status: editingEmployee?.status || 'active' as const,
       skills: formData.skills.split(',').map(s => s.trim()).filter(Boolean),
-      createdAt: editingEmployee?.createdAt || new Date().toISOString(),
     };
 
-    let updatedEmployees: Employee[];
-    if (editingEmployee) {
-      updatedEmployees = employees.map(e => e.id === editingEmployee.id ? newEmployee : e);
-      toast.success('Funcionário atualizado!');
-    } else {
-      updatedEmployees = [newEmployee, ...employees];
-      toast.success('Funcionário cadastrado!');
+    try {
+      if (editingEmployee) {
+        await update(editingEmployee.id, employeeData);
+        toast.success('Funcionário atualizado!');
+      } else {
+        await create(employeeData as any);
+        toast.success('Funcionário cadastrado!');
+      }
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      toast.error('Erro ao salvar funcionário');
     }
-
-    setEmployees(updatedEmployees);
-    saveToStorage('employees', updatedEmployees);
-    setIsModalOpen(false);
-    resetForm();
   };
 
   const handleEdit = (employee: Employee) => {
@@ -100,26 +91,23 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
       email: employee.email,
       phone: employee.phone,
       avatar: employee.avatar,
-      hireDate: employee.hireDate,
+      hire_date: employee.hire_date || '',
       skills: employee.skills.join(', '),
     });
     setEditingEmployee(employee);
     setIsModalOpen(true);
   };
 
-  const toggleStatus = (id: string) => {
-    const updatedEmployees = employees.map(e =>
-      e.id === id ? { ...e, status: e.status === 'active' ? 'inactive' as const : 'active' as const } : e
-    );
-    setEmployees(updatedEmployees);
-    saveToStorage('employees', updatedEmployees);
-    toast.success('Status atualizado!');
+  const toggleStatus = async (id: string) => {
+    const employee = employees.find(e => e.id === id);
+    if (employee) {
+      await update(id, { status: employee.status === 'active' ? 'inactive' : 'active' });
+      toast.success('Status atualizado!');
+    }
   };
 
-  const handleDelete = (id: string) => {
-    const updatedEmployees = employees.filter(e => e.id !== id);
-    setEmployees(updatedEmployees);
-    saveToStorage('employees', updatedEmployees);
+  const handleDelete = async (id: string) => {
+    await remove(id);
     toast.success('Funcionário excluído!');
   };
 
@@ -128,11 +116,11 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
   };
 
   const getEmployeeStats = (employeeId: string) => {
-    const assignedClients = clients.filter(c => c.responsibleId === employeeId);
-    const assignedTasks = tasks.filter(t => t.responsibleId === employeeId);
+    const assignedClients = clients.filter(c => c.responsible_id === employeeId);
+    const assignedTasks = tasks.filter(t => t.responsible_id === employeeId);
     const pendingTasks = assignedTasks.filter(t => t.status !== 'completed');
     const completedTasks = assignedTasks.filter(t => t.status === 'completed');
-    const createdContents = contents.filter(c => c.responsibleId === employeeId);
+    const createdContents = contents.filter(c => c.responsible_id === employeeId);
 
     return {
       clients: assignedClients.length,
@@ -150,6 +138,14 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
     const matchesStatus = showArchived ? employee.status === 'inactive' : employee.status === 'active';
     return matchesSearch && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -372,8 +368,8 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
               <label className="block text-sm font-medium text-foreground mb-1">Data de Admissão</label>
               <input
                 type="date"
-                value={formData.hireDate}
-                onChange={(e) => setFormData({ ...formData, hireDate: e.target.value })}
+                value={formData.hire_date}
+                onChange={(e) => setFormData({ ...formData, hire_date: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -417,8 +413,8 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
       >
         {viewingEmployee && (() => {
           const stats = getEmployeeStats(viewingEmployee.id);
-          const assignedClients = clients.filter(c => c.responsibleId === viewingEmployee.id);
-          const recentTasks = tasks.filter(t => t.responsibleId === viewingEmployee.id).slice(0, 5);
+          const assignedClients = clients.filter(c => c.responsible_id === viewingEmployee.id);
+          const recentTasks = tasks.filter(t => t.responsible_id === viewingEmployee.id).slice(0, 5);
 
           return (
             <div className="space-y-6">
@@ -436,23 +432,25 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
                   </div>
                 )}
                 <div>
-                  <h3 className="text-xl font-semibold">{viewingEmployee.name}</h3>
+                  <h3 className="text-xl font-semibold text-foreground">{viewingEmployee.name}</h3>
                   <p className="text-primary">{viewingEmployee.role}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Desde {format(new Date(viewingEmployee.hireDate), "MMMM 'de' yyyy", { locale: ptBR })}
-                  </p>
+                  {viewingEmployee.hire_date && (
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Desde {format(new Date(viewingEmployee.hire_date), "MMMM 'de' yyyy", { locale: ptBR })}
+                    </p>
+                  )}
                 </div>
               </div>
 
               {/* Stats */}
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-muted rounded-lg p-4 text-center">
-                  <p className="text-2xl font-bold text-card-foreground">{stats.clients}</p>
+                  <p className="text-2xl font-bold text-foreground">{stats.clients}</p>
                   <p className="text-sm text-muted-foreground">Clientes</p>
                 </div>
                 <div className="bg-muted rounded-lg p-4 text-center">
                   <p className="text-2xl font-bold text-warning">{stats.pendingTasks}</p>
-                  <p className="text-sm text-muted-foreground">Tarefas Pendentes</p>
+                  <p className="text-sm text-muted-foreground">Pendentes</p>
                 </div>
                 <div className="bg-muted rounded-lg p-4 text-center">
                   <p className="text-2xl font-bold text-success">{stats.completedTasks}</p>
@@ -465,24 +463,27 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
               </div>
 
               {/* Contact */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-muted-foreground">Email</p>
-                  <p className="font-medium">{viewingEmployee.email}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Telefone</p>
-                  <p className="font-medium">{viewingEmployee.phone || '-'}</p>
+              <div>
+                <h4 className="font-semibold text-foreground mb-2">Contato</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Mail className="w-4 h-4" />
+                    <span>{viewingEmployee.email}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Phone className="w-4 h-4" />
+                    <span>{viewingEmployee.phone}</span>
+                  </div>
                 </div>
               </div>
 
               {/* Skills */}
               {viewingEmployee.skills.length > 0 && (
                 <div>
-                  <p className="text-sm text-muted-foreground mb-2">Habilidades</p>
+                  <h4 className="font-semibold text-foreground mb-2">Habilidades</h4>
                   <div className="flex flex-wrap gap-2">
                     {viewingEmployee.skills.map(skill => (
-                      <span key={skill} className="px-3 py-1 bg-primary/10 text-primary text-sm rounded-full">
+                      <span key={skill} className="px-3 py-1 bg-primary/10 text-primary rounded-full text-sm">
                         {skill}
                       </span>
                     ))}
@@ -493,12 +494,12 @@ export function EmployeesPage({ searchQuery }: EmployeesPageProps) {
               {/* Assigned Clients */}
               {assignedClients.length > 0 && (
                 <div>
-                  <p className="text-sm text-muted-foreground mb-2">Clientes sob responsabilidade</p>
+                  <h4 className="font-semibold text-foreground mb-2">Clientes Atribuídos</h4>
                   <div className="flex flex-wrap gap-2">
                     {assignedClients.map(client => (
-                      <span 
-                        key={client.id} 
-                        className="px-3 py-1 text-sm rounded-full text-white"
+                      <span
+                        key={client.id}
+                        className="px-3 py-1 rounded-full text-sm text-white"
                         style={{ backgroundColor: client.color }}
                       >
                         {client.name}

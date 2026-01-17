@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Plus, Heart, Edit2, Trash2, Filter, Search } from 'lucide-react';
-import { getFromStorage, saveToStorage, Idea, generateId } from '@/lib/storage';
+import { useState } from 'react';
+import { Plus, Heart, Edit2, Trash2, Search, Loader2 } from 'lucide-react';
+import { useIdeas, Idea } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -29,7 +29,7 @@ interface IdeasPageProps {
 }
 
 export function IdeasPage({ searchQuery }: IdeasPageProps) {
-  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const { data: ideas, loading, create, update, remove } = useIdeas();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('');
@@ -42,10 +42,6 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     status: 'new' as Idea['status'],
   });
 
-  useEffect(() => {
-    setIdeas(getFromStorage<Idea>('ideas'));
-  }, []);
-
   const resetForm = () => {
     setFormData({
       title: '',
@@ -57,33 +53,31 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     setEditingIdea(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newIdea: Idea = {
-      id: editingIdea?.id || generateId(),
+    const ideaData = {
       title: formData.title,
       description: formData.description,
       category: formData.category,
       tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
       status: formData.status,
       favorite: editingIdea?.favorite || false,
-      createdAt: editingIdea?.createdAt || new Date().toISOString(),
     };
 
-    let updatedIdeas: Idea[];
-    if (editingIdea) {
-      updatedIdeas = ideas.map(i => i.id === editingIdea.id ? newIdea : i);
-      toast.success('Ideia atualizada com sucesso!');
-    } else {
-      updatedIdeas = [newIdea, ...ideas];
-      toast.success('Ideia criada com sucesso!');
+    try {
+      if (editingIdea) {
+        await update(editingIdea.id, ideaData);
+        toast.success('Ideia atualizada com sucesso!');
+      } else {
+        await create(ideaData as any);
+        toast.success('Ideia criada com sucesso!');
+      }
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      toast.error('Erro ao salvar ideia');
     }
-
-    setIdeas(updatedIdeas);
-    saveToStorage('ideas', updatedIdeas);
-    setIsModalOpen(false);
-    resetForm();
   };
 
   const handleEdit = (idea: Idea) => {
@@ -98,19 +92,16 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    const updatedIdeas = ideas.filter(i => i.id !== id);
-    setIdeas(updatedIdeas);
-    saveToStorage('ideas', updatedIdeas);
+  const handleDelete = async (id: string) => {
+    await remove(id);
     toast.success('Ideia excluída!');
   };
 
-  const toggleFavorite = (id: string) => {
-    const updatedIdeas = ideas.map(i =>
-      i.id === id ? { ...i, favorite: !i.favorite } : i
-    );
-    setIdeas(updatedIdeas);
-    saveToStorage('ideas', updatedIdeas);
+  const toggleFavorite = async (id: string) => {
+    const idea = ideas.find(i => i.id === id);
+    if (idea) {
+      await update(id, { favorite: !idea.favorite });
+    }
   };
 
   const filteredIdeas = ideas.filter(idea => {
@@ -122,6 +113,14 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     const matchesStatus = !filterStatus || idea.status === filterStatus;
     return matchesSearch && matchesCategory && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -206,7 +205,7 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
 
               <div className="flex items-center justify-between pt-3 border-t border-border">
                 <span className="text-xs text-muted-foreground">
-                  {format(new Date(idea.createdAt), "dd 'de' MMM, yyyy", { locale: ptBR })}
+                  {format(new Date(idea.created_at), "dd 'de' MMM, yyyy", { locale: ptBR })}
                 </span>
                 <div className="flex items-center gap-1">
                   <button
