@@ -91,6 +91,21 @@ export interface Comment {
   created_at: string;
 }
 
+export interface Mission {
+  id: string;
+  user_id?: string;
+  title: string;
+  description: string;
+  points: number;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'available' | 'in_progress' | 'completed';
+  created_by?: string;
+  assigned_to?: string;
+  started_at?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
 // Hook genérico para dados do Supabase
 function useSupabaseTable<T extends { id: string }>(tableName: string) {
   const [data, setData] = useState<T[]>([]);
@@ -196,4 +211,8 @@ export function useContents() {
 
 export function useComments() {
   return useSupabaseTable<Comment>('comments');
+}
+
+export function useMissions() {
+  return useSupabaseTable<Mission>('missions');
 }

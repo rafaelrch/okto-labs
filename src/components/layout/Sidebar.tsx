@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Sparkles,
   LogOut,
+  Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -32,6 +33,7 @@ const menuItems = [
   { id: 'calendar', label: 'Calendário', icon: CalendarDays },
   { id: 'tasks', label: 'Tarefas', icon: CheckSquare, badge: 'todayTasks' },
   { id: 'employees', label: 'Funcionários', icon: UserCircle },
+  { id: 'missions', label: 'Missões', icon: Target },
 ];
 
 export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks }: SidebarProps) {
