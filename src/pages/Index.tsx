@@ -8,6 +8,7 @@ import { ApprovalsPage } from '@/pages/Approvals';
 import { CalendarPage } from '@/pages/Calendar';
 import { TasksPage } from '@/pages/Tasks';
 import { EmployeesPage } from '@/pages/Employees';
+import { MissionsPage } from '@/pages/Missions';
 import { initializeMockData } from '@/lib/storage';
 
 const Index = () => {
@@ -22,6 +23,8 @@ const Index = () => {
     switch (currentPage) {
       case 'dashboard':
         return <Dashboard onNavigate={setCurrentPage} />;
+      case 'missions':
+        return <MissionsPage searchQuery={searchQuery} />;
       case 'ideas':
         return <IdeasPage searchQuery={searchQuery} />;
       case 'clients':
