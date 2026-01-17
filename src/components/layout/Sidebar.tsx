@@ -36,7 +36,9 @@ const menuItems = [
 
 export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const { session, logout } = useAuth();
+  const { user, logout } = useAuth();
+  const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Usuário';
+  const userRole = user?.user_metadata?.role || 'Funcionário';
 
   const badges: Record<string, number> = {
     pendingApprovals,
@@ -107,10 +109,10 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
 
       {/* Footer */}
       <div className="p-4 border-t border-sidebar-border">
-        {!collapsed && session && (
+        {!collapsed && user && (
           <div className="mb-3 px-2">
-            <p className="text-sm font-medium text-sidebar-foreground truncate">{session.name}</p>
-            <p className="text-xs text-sidebar-muted truncate">{session.role}</p>
+            <p className="text-sm font-medium text-sidebar-foreground truncate">{userName}</p>
+            <p className="text-xs text-sidebar-muted truncate">{userRole}</p>
           </div>
         )}
         <button
