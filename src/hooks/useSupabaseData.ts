@@ -98,7 +98,8 @@ export interface Mission {
   description: string;
   points: number;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'available' | 'in_progress' | 'completed';
+  status: 'available' | 'in_progress' | 'completed' | 'expired';
+  deadline: string;
   created_by?: string;
   assigned_to?: string;
   started_at?: string;
