@@ -360,43 +360,32 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
           description="Cadastre funcionários com o cargo de Designer ou Editor de Vídeo para ver seus conteúdos aqui."
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="flex flex-wrap gap-3">
           {creativeEmployees.map(employee => {
-            const pendingCount = getContentCountByStatus(employee.id, 'pending');
-            const approvedCount = getContentCountByStatus(employee.id, 'approved');
-            const rejectedCount = getContentCountByStatus(employee.id, 'rejected');
+            const totalCount = contents.filter(c => c.responsibleId === employee.id).length;
             const isSelected = selectedEmployee?.id === employee.id;
 
             return (
               <div
                 key={employee.id}
                 onClick={() => setSelectedEmployee(isSelected ? null : employee)}
-                className={`bg-card rounded-xl border p-4 cursor-pointer transition-all ${
+                className={`flex-1 min-w-[200px] max-w-[300px] bg-card rounded-xl border p-4 cursor-pointer transition-all ${
                   isSelected 
                     ? 'border-primary ring-2 ring-primary/20 shadow-lg' 
                     : 'border-border hover:border-primary/50 hover:shadow-md'
                 }`}
               >
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-primary-foreground font-semibold">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-primary-foreground font-semibold text-sm">
                     {getInitials(employee.name)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-card-foreground truncate">{employee.name}</h3>
-                    <p className="text-sm text-muted-foreground truncate">{employee.role}</p>
+                    <h3 className="font-medium text-card-foreground truncate text-sm">{employee.name}</h3>
+                    <p className="text-xs text-muted-foreground truncate">{employee.role}</p>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="px-2 py-1 bg-warning/20 text-warning rounded-full">
-                    {pendingCount} pendente{pendingCount !== 1 ? 's' : ''}
-                  </span>
-                  <span className="px-2 py-1 bg-success/20 text-success rounded-full">
-                    {approvedCount} aprovado{approvedCount !== 1 ? 's' : ''}
-                  </span>
-                  <span className="px-2 py-1 bg-destructive/20 text-destructive rounded-full">
-                    {rejectedCount} reprovado{rejectedCount !== 1 ? 's' : ''}
-                  </span>
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm">
+                    {totalCount}
+                  </div>
                 </div>
               </div>
             );
