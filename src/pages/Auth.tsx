@@ -6,12 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { getFromStorage, saveToStorage, generateId, Employee } from '@/lib/storage';
+import { supabase } from '@/integrations/supabase/client';
 import { Mail, Lock, User, Phone, Briefcase } from 'lucide-react';
-
-interface AuthEmployee extends Employee {
-  password: string;
-}
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -35,61 +31,34 @@ export default function Auth() {
     setIsLoading(true);
 
     try {
-      const employees = getFromStorage<AuthEmployee>('employees');
-      const employee = employees.find(
-        (emp) => emp.email.toLowerCase() === loginEmail.toLowerCase()
-      );
-
-      if (!employee) {
-        toast({
-          title: 'Erro no login',
-          description: 'Email não encontrado.',
-          variant: 'destructive',
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // Check password (stored employees without password use email as default)
-      const validPassword = employee.password 
-        ? employee.password === loginPassword 
-        : loginPassword === employee.email;
-
-      if (!validPassword) {
-        toast({
-          title: 'Erro no login',
-          description: 'Senha incorreta.',
-          variant: 'destructive',
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      if (employee.status === 'inactive') {
-        toast({
-          title: 'Acesso negado',
-          description: 'Sua conta está desativada. Entre em contato com o administrador.',
-          variant: 'destructive',
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // Save session
-      localStorage.setItem('agency_session', JSON.stringify({
-        employeeId: employee.id,
-        name: employee.name,
-        email: employee.email,
-        role: employee.role,
-        loggedInAt: new Date().toISOString(),
-      }));
-
-      toast({
-        title: 'Bem-vindo(a)!',
-        description: `Olá, ${employee.name.split(' ')[0]}!`,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail.trim(),
+        password: loginPassword,
       });
 
-      navigate('/');
+      if (error) {
+        let message = 'Ocorreu um erro ao fazer login.';
+        if (error.message.includes('Invalid login credentials')) {
+          message = 'Email ou senha incorretos.';
+        } else if (error.message.includes('Email not confirmed')) {
+          message = 'Por favor, confirme seu email antes de fazer login.';
+        }
+        
+        toast({
+          title: 'Erro no login',
+          description: message,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (data.user) {
+        toast({
+          title: 'Bem-vindo(a)!',
+          description: `Login realizado com sucesso!`,
+        });
+        navigate('/');
+      }
     } catch (error) {
       toast({
         title: 'Erro',
@@ -148,54 +117,50 @@ export default function Auth() {
         return;
       }
 
-      const employees = getFromStorage<AuthEmployee>('employees');
-      const existingEmployee = employees.find(
-        (emp) => emp.email.toLowerCase() === signupEmail.toLowerCase()
-      );
+      const redirectUrl = `${window.location.origin}/`;
 
-      if (existingEmployee) {
+      const { data, error } = await supabase.auth.signUp({
+        email: signupEmail.trim().toLowerCase(),
+        password: signupPassword,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            name: signupName.trim(),
+            phone: signupPhone.trim(),
+            role: signupRole.trim() || 'Funcionário',
+          },
+        },
+      });
+
+      if (error) {
+        let message = 'Ocorreu um erro ao criar a conta.';
+        if (error.message.includes('already registered')) {
+          message = 'Este email já está cadastrado. Tente fazer login.';
+        }
+        
         toast({
-          title: 'Email já cadastrado',
-          description: 'Este email já está em uso. Tente fazer login.',
+          title: 'Erro no cadastro',
+          description: message,
           variant: 'destructive',
         });
-        setIsLoading(false);
         return;
       }
 
-      // Create new employee
-      const newEmployee: AuthEmployee = {
-        id: generateId(),
-        name: signupName.trim(),
-        email: signupEmail.trim().toLowerCase(),
-        phone: signupPhone.trim(),
-        role: signupRole.trim() || 'Funcionário',
-        avatar: '',
-        hireDate: new Date().toISOString().split('T')[0],
-        status: 'active',
-        skills: [],
-        createdAt: new Date().toISOString(),
-        password: signupPassword,
-      };
-
-      employees.push(newEmployee);
-      saveToStorage('employees', employees);
-
-      // Auto login after signup
-      localStorage.setItem('agency_session', JSON.stringify({
-        employeeId: newEmployee.id,
-        name: newEmployee.name,
-        email: newEmployee.email,
-        role: newEmployee.role,
-        loggedInAt: new Date().toISOString(),
-      }));
-
-      toast({
-        title: 'Conta criada com sucesso!',
-        description: `Bem-vindo(a), ${newEmployee.name.split(' ')[0]}!`,
-      });
-
-      navigate('/');
+      if (data.user) {
+        // Check if email confirmation is required
+        if (data.session) {
+          toast({
+            title: 'Conta criada com sucesso!',
+            description: `Bem-vindo(a), ${signupName.split(' ')[0]}!`,
+          });
+          navigate('/');
+        } else {
+          toast({
+            title: 'Conta criada!',
+            description: 'Verifique seu email para confirmar a conta.',
+          });
+        }
+      }
     } catch (error) {
       toast({
         title: 'Erro',
@@ -267,12 +232,6 @@ export default function Auth() {
                     {isLoading ? 'Entrando...' : 'Entrar'}
                   </Button>
                 </form>
-
-                <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground text-center">
-                    <strong>Dica:</strong> Para funcionários existentes sem senha cadastrada, use o email como senha.
-                  </p>
-                </div>
               </TabsContent>
 
               <TabsContent value="signup">

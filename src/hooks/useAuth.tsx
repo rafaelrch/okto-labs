@@ -1,51 +1,54 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-interface Session {
-  employeeId: string;
-  name: string;
-  email: string;
-  role: string;
-  loggedInAt: string;
-}
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
+  user: User | null;
   session: Session | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check for existing session
-    const storedSession = localStorage.getItem('agency_session');
-    if (storedSession) {
-      try {
-        const parsedSession = JSON.parse(storedSession);
-        setSession(parsedSession);
-      } catch {
-        localStorage.removeItem('agency_session');
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
       }
-    }
-    setIsLoading(false);
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const logout = () => {
-    localStorage.removeItem('agency_session');
+  const logout = async () => {
+    await supabase.auth.signOut();
     setSession(null);
+    setUser(null);
     navigate('/auth');
   };
 
   return (
     <AuthContext.Provider
       value={{
+        user,
         session,
         isAuthenticated: !!session,
         isLoading,
