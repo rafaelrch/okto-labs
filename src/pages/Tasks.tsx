@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy, ChevronDown, Circle, CheckCircle2, Clock } from 'lucide-react';
-import { getFromStorage, saveToStorage, Task, Client, Employee, generateId } from '@/lib/storage';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy, ChevronDown, Circle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { useTasks, useClients, useEmployees, Task } from '@/hooks/useSupabaseData';
 import { TaskStatusMenu, type TaskStatus } from '@/components/tasks/TaskStatusMenu';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -29,13 +29,13 @@ const statuses = [
 type FilterType = 'all' | 'today' | 'tomorrow' | 'week' | 'month' | 'overdue';
 
 export function TasksPage({ searchQuery }: TasksPageProps) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const { data: tasks, loading, create, update, remove } = useTasks();
+  const { data: clients } = useClients();
+  const { data: employees } = useEmployees();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [filterType, setFilterType] = useState<FilterType>('all');
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<typeof employees[0] | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [statusMenu, setStatusMenu] = useState<{ taskId: string; anchorRect: DOMRect } | null>(null);
@@ -43,10 +43,10 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [formData, setFormData] = useState({
     title: '',
     description: '',
-    responsibleId: '',
+    responsible_id: '',
     priority: 'medium' as Task['priority'],
-    dueDate: '',
-    clientId: '',
+    due_date: '',
+    client_id: '',
     status: 'pending' as Task['status'],
     tags: '',
   });
@@ -62,66 +62,58 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    setTasks(getFromStorage<Task>('tasks'));
-    setClients(getFromStorage<Client>('clients'));
-    setEmployees(getFromStorage<Employee>('employees'));
-  }, []);
-
   const resetForm = () => {
     setFormData({
       title: '',
       description: '',
-      responsibleId: employees.find(e => e.status === 'active')?.id || '',
+      responsible_id: employees.find(e => e.status === 'active')?.id || '',
       priority: 'medium',
-      dueDate: new Date().toISOString().split('T')[0],
-      clientId: '',
+      due_date: new Date().toISOString().split('T')[0],
+      client_id: '',
       status: 'pending',
       tags: '',
     });
     setEditingTask(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newTask: Task = {
-      id: editingTask?.id || generateId(),
+    const taskData = {
       title: formData.title,
       description: formData.description,
-      responsibleId: formData.responsibleId,
+      responsible_id: formData.responsible_id || null,
       priority: formData.priority,
-      dueDate: formData.dueDate,
-      clientId: formData.clientId || undefined,
+      due_date: formData.due_date || null,
+      client_id: formData.client_id || null,
       status: formData.status,
       tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-      createdAt: editingTask?.createdAt || new Date().toISOString(),
-      completedAt: formData.status === 'completed' ? new Date().toISOString() : undefined,
+      completed_at: formData.status === 'completed' ? new Date().toISOString() : null,
     };
 
-    let updatedTasks: Task[];
-    if (editingTask) {
-      updatedTasks = tasks.map(t => t.id === editingTask.id ? newTask : t);
-      toast.success('Tarefa atualizada!');
-    } else {
-      updatedTasks = [newTask, ...tasks];
-      toast.success('Tarefa criada!');
+    try {
+      if (editingTask) {
+        await update(editingTask.id, taskData);
+        toast.success('Tarefa atualizada!');
+      } else {
+        await create(taskData as any);
+        toast.success('Tarefa criada!');
+      }
+      setIsModalOpen(false);
+      resetForm();
+    } catch (error) {
+      toast.error('Erro ao salvar tarefa');
     }
-
-    setTasks(updatedTasks);
-    saveToStorage('tasks', updatedTasks);
-    setIsModalOpen(false);
-    resetForm();
   };
 
   const handleEdit = (task: Task) => {
     setFormData({
       title: task.title,
       description: task.description,
-      responsibleId: task.responsibleId,
+      responsible_id: task.responsible_id || '',
       priority: task.priority,
-      dueDate: task.dueDate,
-      clientId: task.clientId || '',
+      due_date: task.due_date || '',
+      client_id: task.client_id || '',
       status: task.status,
       tags: task.tags.join(', '),
     });
@@ -129,16 +121,11 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     setIsModalOpen(true);
   };
 
-  const handleChangeStatus = (task: Task, newStatus: Task['status']) => {
-    const updatedTasks = tasks.map(t =>
-      t.id === task.id ? { 
-        ...t, 
-        status: newStatus,
-        completedAt: newStatus === 'completed' ? new Date().toISOString() : undefined
-      } : t
-    );
-    setTasks(updatedTasks);
-    saveToStorage('tasks', updatedTasks);
+  const handleChangeStatus = async (task: Task, newStatus: Task['status']) => {
+    await update(task.id, {
+      status: newStatus,
+      completed_at: newStatus === 'completed' ? new Date().toISOString() : null
+    });
     setStatusMenu(null);
     toast.success('Status atualizado!');
   };
@@ -148,27 +135,24 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     handleChangeStatus(task, newStatus);
   };
 
-  const handleDelete = (id: string) => {
-    const updatedTasks = tasks.filter(t => t.id !== id);
-    setTasks(updatedTasks);
-    saveToStorage('tasks', updatedTasks);
+  const handleDelete = async (id: string) => {
+    await remove(id);
     toast.success('Tarefa excluída!');
     setOpenDropdownId(null);
     setStatusMenu(null);
   };
 
-  const handleDuplicate = (task: Task) => {
-    const duplicatedTask: Task = {
-      ...task,
-      id: generateId(),
+  const handleDuplicate = async (task: Task) => {
+    await create({
       title: `${task.title} (cópia)`,
-      createdAt: new Date().toISOString(),
+      description: task.description,
+      responsible_id: task.responsible_id,
+      priority: task.priority,
+      due_date: task.due_date,
+      client_id: task.client_id,
       status: 'pending',
-      completedAt: undefined,
-    };
-    const updatedTasks = [duplicatedTask, ...tasks];
-    setTasks(updatedTasks);
-    saveToStorage('tasks', updatedTasks);
+      tags: task.tags,
+    } as any);
     toast.success('Tarefa duplicada!');
     setOpenDropdownId(null);
     setStatusMenu(null);
@@ -179,15 +163,15 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     setOpenDropdownId(null);
   };
 
-  const getClientName = (id?: string) => id ? clients.find(c => c.id === id)?.name : null;
-  const getEmployeeName = (id: string) => employees.find(e => e.id === id)?.name || 'Não atribuído';
+  const getClientName = (id?: string | null) => id ? clients.find(c => c.id === id)?.name : null;
+  const getEmployeeName = (id?: string | null) => id ? employees.find(e => e.id === id)?.name || 'Não atribuído' : 'Não atribuído';
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const getTaskCountByStatus = (empId: string, status: Task['status']) => {
-    return tasks.filter(t => t.responsibleId === empId && t.status === status).length;
+    return tasks.filter(t => t.responsible_id === empId && t.status === status).length;
   };
 
   const filterTasks = (taskList: Task[]) => {
@@ -195,27 +179,31 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
       const matchesSearch = 
         task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesEmployee = !selectedEmployee || task.responsibleId === selectedEmployee.id;
+      const matchesEmployee = !selectedEmployee || task.responsible_id === selectedEmployee.id;
       
       let matchesFilter = true;
-      const dueDate = new Date(task.dueDate);
-      
-      switch (filterType) {
-        case 'today':
-          matchesFilter = isToday(dueDate);
-          break;
-        case 'tomorrow':
-          matchesFilter = isTomorrow(dueDate);
-          break;
-        case 'week':
-          matchesFilter = isThisWeek(dueDate);
-          break;
-        case 'month':
-          matchesFilter = isThisMonth(dueDate);
-          break;
-        case 'overdue':
-          matchesFilter = isPast(dueDate) && task.status !== 'completed';
-          break;
+      if (task.due_date) {
+        const dueDate = new Date(task.due_date);
+        
+        switch (filterType) {
+          case 'today':
+            matchesFilter = isToday(dueDate);
+            break;
+          case 'tomorrow':
+            matchesFilter = isTomorrow(dueDate);
+            break;
+          case 'week':
+            matchesFilter = isThisWeek(dueDate);
+            break;
+          case 'month':
+            matchesFilter = isThisMonth(dueDate);
+            break;
+          case 'overdue':
+            matchesFilter = isPast(dueDate) && task.status !== 'completed';
+            break;
+        }
+      } else if (filterType !== 'all') {
+        matchesFilter = false;
       }
 
       return matchesSearch && matchesEmployee && matchesFilter;
@@ -268,7 +256,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const stats = {
     total: tasks.length,
     completed: tasks.filter(t => t.status === 'completed').length,
-    overdue: tasks.filter(t => isPast(new Date(t.dueDate)) && t.status !== 'completed').length,
+    overdue: tasks.filter(t => t.due_date && isPast(new Date(t.due_date)) && t.status !== 'completed').length,
   };
 
   const filterButtons: { type: FilterType; label: string }[] = [
@@ -279,6 +267,14 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     { type: 'month', label: 'Este Mês' },
     { type: 'overdue', label: 'Atrasadas' },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -462,36 +458,39 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                             {task.title}
                           </h3>
 
+                          {task.due_date && (
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(task.due_date), "dd 'de' MMM", { locale: ptBR })}
+                            </span>
+                          )}
+
                           <div className="relative" ref={openDropdownId === task.id ? dropdownRef : null}>
                             <button
                               onClick={() => setOpenDropdownId(openDropdownId === task.id ? null : task.id)}
-                              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
+                              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
                             >
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
 
                             {openDropdownId === task.id && (
-                              <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
+                              <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50">
                                 <button
                                   onClick={() => handleRename(task)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                                 >
-                                  <Edit2 className="w-4 h-4" />
-                                  Renomear
+                                  <Edit2 className="w-4 h-4" /> Editar
                                 </button>
                                 <button
                                   onClick={() => handleDuplicate(task)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors"
                                 >
-                                  <Copy className="w-4 h-4" />
-                                  Duplicar
+                                  <Copy className="w-4 h-4" /> Duplicar
                                 </button>
                                 <button
                                   onClick={() => handleDelete(task.id)}
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-destructive hover:bg-muted transition-colors"
                                 >
-                                  <Trash2 className="w-4 h-4" />
-                                  Excluir
+                                  <Trash2 className="w-4 h-4" /> Excluir
                                 </button>
                               </div>
                             )}
@@ -500,36 +499,28 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                       ))}
                     </>
                   ) : (
-                    <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                      Nenhuma tarefa nesta seção
+                    <div className="p-4 text-center text-sm text-muted-foreground">
+                      Nenhuma tarefa
                     </div>
                   )}
-
-                  <button
-                    onClick={() => openModalWithStatus(section.key as Task['status'])}
-                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-primary hover:bg-muted/30 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Adicionar Tarefa
-                  </button>
                 </div>
               )}
             </div>
           ))}
-
-          <TaskStatusMenu
-            open={!!statusMenu && !!tasks.find(t => t.id === statusMenu.taskId)}
-            anchorRect={statusMenu?.anchorRect ?? null}
-            currentStatus={(tasks.find(t => t.id === statusMenu?.taskId)?.status ?? 'pending') as TaskStatus}
-            onClose={() => setStatusMenu(null)}
-            onSelect={(next) => {
-              const selected = tasks.find(t => t.id === statusMenu?.taskId);
-              if (!selected) return;
-              handleChangeStatus(selected, next);
-            }}
-          />
         </div>
       )}
+
+      {/* Status Menu Portal */}
+      <TaskStatusMenu
+        open={!!statusMenu}
+        anchorRect={statusMenu?.anchorRect || null}
+        currentStatus={tasks.find(t => t.id === statusMenu?.taskId)?.status || 'pending'}
+        onSelect={(status) => {
+          const task = tasks.find(t => t.id === statusMenu?.taskId);
+          if (task) handleChangeStatus(task, status as Task['status']);
+        }}
+        onClose={() => setStatusMenu(null)}
+      />
 
       {/* Modal */}
       <Modal
@@ -553,7 +544,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
           <div>
             <label className="block text-sm font-medium text-foreground mb-1">Descrição</label>
             <textarea
-              rows={2}
+              rows={3}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary resize-none"
@@ -564,8 +555,8 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Responsável</label>
               <select
-                value={formData.responsibleId}
-                onChange={(e) => setFormData({ ...formData, responsibleId: e.target.value })}
+                value={formData.responsible_id}
+                onChange={(e) => setFormData({ ...formData, responsible_id: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="">Selecione...</option>
@@ -575,13 +566,17 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Data de Entrega</label>
-              <input
-                type="date"
-                value={formData.dueDate}
-                onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+              <label className="block text-sm font-medium text-foreground mb-1">Cliente (opcional)</label>
+              <select
+                value={formData.client_id}
+                onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              />
+              >
+                <option value="">Nenhum</option>
+                {clients.filter(c => c.status === 'active').map(client => (
+                  <option key={client.id} value={client.id}>{client.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -611,17 +606,13 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Cliente (opcional)</label>
-              <select
-                value={formData.clientId}
-                onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+              <label className="block text-sm font-medium text-foreground mb-1">Data de Entrega</label>
+              <input
+                type="date"
+                value={formData.due_date}
+                onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="">Nenhum</option>
-                {clients.filter(c => c.status === 'active').map(client => (
-                  <option key={client.id} value={client.id}>{client.name}</option>
-                ))}
-              </select>
+              />
             </div>
           </div>
 
@@ -631,7 +622,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               type="text"
               value={formData.tags}
               onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-              placeholder="design, urgente, revisão"
+              placeholder="design, urgente, redes sociais"
               className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
@@ -648,7 +639,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               type="submit"
               className="px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
             >
-              {editingTask ? 'Salvar' : 'Criar'}
+              {editingTask ? 'Salvar' : 'Criar Tarefa'}
             </button>
           </div>
         </form>

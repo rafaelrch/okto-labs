@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { 
   Users, 
   FileCheck, 
@@ -7,12 +6,14 @@ import {
   TrendingUp, 
   ArrowRight,
   CheckSquare,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Loader2
 } from 'lucide-react';
-import { getFromStorage, Client, Content, Task, Employee } from '@/lib/storage';
+import { useClients, useContents, useTasks, useEmployees } from '@/hooks/useSupabaseData';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { useState } from 'react';
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -46,18 +47,21 @@ function MetricCard({ title, value, icon: Icon, color, onClick }: MetricCardProp
 }
 
 export function Dashboard({ onNavigate }: DashboardProps) {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [contents, setContents] = useState<Content[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const { data: clients, loading: loadingClients } = useClients();
+  const { data: contents, loading: loadingContents } = useContents();
+  const { data: tasks, loading: loadingTasks } = useTasks();
+  const { data: employees, loading: loadingEmployees } = useEmployees();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
-  useEffect(() => {
-    setClients(getFromStorage<Client>('clients'));
-    setContents(getFromStorage<Content>('contents'));
-    setTasks(getFromStorage<Task>('tasks'));
-    setEmployees(getFromStorage<Employee>('employees'));
-  }, []);
+  const loading = loadingClients || loadingContents || loadingTasks || loadingEmployees;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   // Métricas
   const activeClients = clients.filter(c => c.status === 'active').length;
@@ -65,26 +69,26 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const pendingApprovals = contents.filter(c => c.status === 'pending').length;
   
   const today = new Date().toISOString().split('T')[0];
-  const todayPosts = contents.filter(c => c.publishDate === today).length;
-  const allTodayTasks = tasks.filter(t => t.dueDate === today && t.status !== 'completed');
+  const todayPosts = contents.filter(c => c.publish_date === today).length;
+  const allTodayTasks = tasks.filter(t => t.due_date === today && t.status !== 'completed');
   
   // Filtrar tarefas por funcionário selecionado
   const todayTasks = selectedEmployeeId
-    ? allTodayTasks.filter(t => t.responsibleId === selectedEmployeeId)
+    ? allTodayTasks.filter(t => t.responsible_id === selectedEmployeeId)
     : allTodayTasks;
 
   // Funcionários que têm tarefas hoje
   const employeesWithTodayTasks = employees.filter(emp => 
-    allTodayTasks.some(t => t.responsibleId === emp.id)
+    allTodayTasks.some(t => t.responsible_id === emp.id)
   );
 
   // Próximas publicações (aprovados para postar)
   const upcomingPublications = contents
-    .filter(c => c.status === 'approved' && c.publishDate >= today)
+    .filter(c => c.status === 'approved' && c.publish_date && c.publish_date >= today)
     .sort((a, b) => {
-      const dateCompare = a.publishDate.localeCompare(b.publishDate);
+      const dateCompare = (a.publish_date || '').localeCompare(b.publish_date || '');
       if (dateCompare !== 0) return dateCompare;
-      return a.publishTime.localeCompare(b.publishTime);
+      return a.publish_time.localeCompare(b.publish_time);
     });
 
   return (
@@ -200,7 +204,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
           <div className="p-4 space-y-3">
             {upcomingPublications.slice(0, 5).map(content => {
-              const client = clients.find(c => c.id === content.clientId);
+              const client = clients.find(c => c.id === content.client_id);
               return (
                 <div key={content.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   {/* Preview Square */}
@@ -213,7 +217,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-card-foreground truncate">{content.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {client?.name} • {format(new Date(content.publishDate), "dd 'de' MMM", { locale: ptBR })} às {content.publishTime}
+                      {client?.name} • {content.publish_date && format(new Date(content.publish_date), "dd 'de' MMM", { locale: ptBR })} às {content.publish_time}
                     </p>
                   </div>
                   <StatusBadge status={content.status} type="content" />
