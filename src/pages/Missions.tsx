@@ -86,6 +86,10 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     .sort((a, b) => b.totalPoints - a.totalPoints);
 
   const handleSubmit = async () => {
+    if (!user?.id) {
+      toast.error('Você precisa estar logado para criar missões');
+      return;
+    }
     if (!formData.title.trim()) {
       toast.error('Título é obrigatório');
       return;
@@ -97,13 +101,15 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
 
     try {
       await create({
+        // user_id: criador da missão (auth.uid)
+        user_id: user.id,
         title: formData.title,
         description: formData.description,
         points: formData.points,
         priority: formData.priority,
         deadline: formData.deadline,
         status: 'available',
-        created_by: user?.id,
+        created_by: user.id,
       });
       toast.success('Missão criada com sucesso!');
       setIsDialogOpen(false);
