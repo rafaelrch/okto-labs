@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, MessageSquare, Send, Image, Video, Plus, User, Filter } from 'lucide-react';
+import { Check, X, MessageSquare, Send, Image, Video, Plus, User, Filter, Upload, Link, FileVideo, FileImage } from 'lucide-react';
 import { getFromStorage, saveToStorage, Content, Client, Employee, Comment, generateId } from '@/lib/storage';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -50,15 +50,10 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
   // Form state for new content
   const [formData, setFormData] = useState({
     clientId: '',
-    type: 'post' as Content['type'],
     title: '',
-    description: '',
-    publishDate: '',
-    publishTime: '',
-    socialNetwork: 'instagram' as Content['socialNetwork'],
-    files: '',
-    copy: '',
-    hashtags: '',
+    file: null as File | null,
+    fileUrl: '',
+    uploadType: 'file' as 'file' | 'link',
   });
 
   useEffect(() => {
@@ -194,26 +189,52 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file size (100MB = 104857600 bytes)
+      if (file.size > 104857600) {
+        toast.error('Arquivo muito grande. Máximo permitido: 100MB');
+        return;
+      }
+      setFormData({ ...formData, file });
+    }
+  };
+
   const handleCreateContent = () => {
     if (!formData.title || !formData.clientId || !selectedEmployee) {
       toast.error('Preencha todos os campos obrigatórios');
       return;
     }
 
+    if (formData.uploadType === 'file' && !formData.file) {
+      toast.error('Selecione um arquivo');
+      return;
+    }
+
+    if (formData.uploadType === 'link' && !formData.fileUrl) {
+      toast.error('Insira um link válido');
+      return;
+    }
+
+    const fileName = formData.uploadType === 'file' 
+      ? formData.file?.name || '' 
+      : formData.fileUrl;
+
     const newContent: Content = {
       id: generateId(),
       clientId: formData.clientId,
-      type: formData.type,
+      type: 'post',
       title: formData.title,
-      description: formData.description,
-      publishDate: formData.publishDate || new Date().toISOString().split('T')[0],
-      publishTime: formData.publishTime || '12:00',
-      socialNetwork: formData.socialNetwork,
+      description: '',
+      publishDate: new Date().toISOString().split('T')[0],
+      publishTime: '12:00',
+      socialNetwork: 'instagram',
       responsibleId: selectedEmployee.id,
       status: 'pending',
-      files: formData.files ? formData.files.split(',').map(f => f.trim()) : [],
-      copy: formData.copy,
-      hashtags: formData.hashtags ? formData.hashtags.split(',').map(h => h.trim().replace('#', '')) : [],
+      files: [fileName],
+      copy: '',
+      hashtags: [],
       createdAt: new Date().toISOString(),
     };
 
@@ -223,15 +244,10 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     
     setFormData({
       clientId: '',
-      type: 'post',
       title: '',
-      description: '',
-      publishDate: '',
-      publishTime: '',
-      socialNetwork: 'instagram',
-      files: '',
-      copy: '',
-      hashtags: '',
+      file: null,
+      fileUrl: '',
+      uploadType: 'file',
     });
     setShowCreateModal(false);
     toast.success('Conteúdo criado e enviado para aprovação!');
@@ -630,124 +646,114 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         title={`Novo Conteúdo - ${selectedEmployee?.name || ''}`}
-        size="lg"
+        size="md"
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Cliente *</label>
-              <select
-                value={formData.clientId}
-                onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
-                className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              >
-                <option value="">Selecione um cliente</option>
-                {clients.filter(c => c.status === 'active').map(client => (
-                  <option key={client.id} value={client.id}>{client.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Tipo de Conteúdo *</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value as Content['type'] })}
-                className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              >
-                {Object.entries(contentTypes).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
-            </div>
+        <div className="space-y-5">
+          {/* Cliente */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Cliente *</label>
+            <select
+              value={formData.clientId}
+              onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
+              className="w-full px-3 py-2.5 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
+            >
+              <option value="">Selecione um cliente</option>
+              {clients.filter(c => c.status === 'active').map(client => (
+                <option key={client.id} value={client.id}>{client.name}</option>
+              ))}
+            </select>
           </div>
 
+          {/* Título */}
           <div>
-            <label className="block text-sm font-medium mb-1">Título *</label>
+            <label className="block text-sm font-medium mb-2">Título *</label>
             <input
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
+              className="w-full px-3 py-2.5 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
               placeholder="Título do conteúdo"
             />
           </div>
 
+          {/* Upload Type Toggle */}
           <div>
-            <label className="block text-sm font-medium mb-1">Descrição</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30 min-h-[80px]"
-              placeholder="Descrição ou roteiro do conteúdo"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Rede Social</label>
-              <select
-                value={formData.socialNetwork}
-                onChange={(e) => setFormData({ ...formData, socialNetwork: e.target.value as Content['socialNetwork'] })}
-                className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
+            <label className="block text-sm font-medium mb-2">Upload de Arquivo *</label>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, uploadType: 'file', fileUrl: '' })}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  formData.uploadType === 'file'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
               >
-                {Object.entries(socialNetworks).map(([key, label]) => (
-                  <option key={key} value={key}>{label}</option>
-                ))}
-              </select>
+                <Upload className="w-4 h-4" />
+                Arquivo
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, uploadType: 'link', file: null })}
+                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  formData.uploadType === 'link'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                <Link className="w-4 h-4" />
+                Link
+              </button>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Data de Publicação</label>
-              <input
-                type="date"
-                value={formData.publishDate}
-                onChange={(e) => setFormData({ ...formData, publishDate: e.target.value })}
-                className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-1">Horário</label>
-              <input
-                type="time"
-                value={formData.publishTime}
-                onChange={(e) => setFormData({ ...formData, publishTime: e.target.value })}
-                className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Legenda</label>
-            <textarea
-              value={formData.copy}
-              onChange={(e) => setFormData({ ...formData, copy: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30 min-h-[80px]"
-              placeholder="Legenda do post..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Hashtags (separadas por vírgula)</label>
-            <input
-              type="text"
-              value={formData.hashtags}
-              onChange={(e) => setFormData({ ...formData, hashtags: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              placeholder="Ex: marketing, design, social"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Arquivos (nomes separados por vírgula)</label>
-            <input
-              type="text"
-              value={formData.files}
-              onChange={(e) => setFormData({ ...formData, files: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
-              placeholder="Ex: video.mp4, imagem.png"
-            />
+            {formData.uploadType === 'file' ? (
+              <div className="relative">
+                <input
+                  type="file"
+                  id="file-upload"
+                  accept="image/*,video/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-muted-foreground/30 rounded-xl bg-muted/30 cursor-pointer hover:bg-muted/50 hover:border-primary/50 transition-all"
+                >
+                  {formData.file ? (
+                    <div className="flex items-center gap-3 text-foreground">
+                      {formData.file.type.startsWith('video/') ? (
+                        <FileVideo className="w-8 h-8 text-primary" />
+                      ) : (
+                        <FileImage className="w-8 h-8 text-primary" />
+                      )}
+                      <div className="text-left">
+                        <p className="text-sm font-medium truncate max-w-[200px]">{formData.file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(formData.file.size / (1024 * 1024)).toFixed(2)} MB
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                      <p className="text-sm text-muted-foreground">Clique para selecionar ou arraste um arquivo</p>
+                      <p className="text-xs text-muted-foreground/70 mt-1">Máximo: 100MB (imagem ou vídeo)</p>
+                    </>
+                  )}
+                </label>
+              </div>
+            ) : (
+              <div className="relative">
+                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <input
+                  type="url"
+                  value={formData.fileUrl}
+                  onChange={(e) => setFormData({ ...formData, fileUrl: e.target.value })}
+                  className="w-full pl-10 pr-3 py-2.5 bg-muted rounded-lg text-sm outline-none focus:ring-2 ring-primary/30"
+                  placeholder="Ex: https://drive.google.com/file/..."
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-border">
@@ -761,7 +767,7 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
               onClick={handleCreateContent}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
             >
-              Criar e Enviar para Aprovação
+              Enviar para Aprovação
             </button>
           </div>
         </div>
