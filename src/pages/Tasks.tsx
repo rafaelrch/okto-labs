@@ -35,7 +35,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [filterType, setFilterType] = useState<FilterType>('all');
-  const [filterEmployee, setFilterEmployee] = useState('');
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [statusMenu, setStatusMenu] = useState<{ taskId: string; anchorRect: DOMRect } | null>(null);
@@ -182,12 +182,20 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const getClientName = (id?: string) => id ? clients.find(c => c.id === id)?.name : null;
   const getEmployeeName = (id: string) => employees.find(e => e.id === id)?.name || 'Não atribuído';
 
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const getTaskCountByStatus = (empId: string, status: Task['status']) => {
+    return tasks.filter(t => t.responsibleId === empId && t.status === status).length;
+  };
+
   const filterTasks = (taskList: Task[]) => {
     return taskList.filter(task => {
       const matchesSearch = 
         task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.description.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesEmployee = !filterEmployee || task.responsibleId === filterEmployee;
+      const matchesEmployee = !selectedEmployee || task.responsibleId === selectedEmployee.id;
       
       let matchesFilter = true;
       const dueDate = new Date(task.dueDate);
@@ -290,6 +298,54 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
         </div>
       </div>
 
+      {/* Employee Cards */}
+      <div className="flex flex-wrap gap-3">
+        {employees.filter(e => e.status === 'active').map(employee => {
+          const pendingCount = getTaskCountByStatus(employee.id, 'pending');
+          const inProgressCount = getTaskCountByStatus(employee.id, 'in_progress');
+          const completedCount = getTaskCountByStatus(employee.id, 'completed');
+          const isSelected = selectedEmployee?.id === employee.id;
+
+          return (
+            <div
+              key={employee.id}
+              onClick={() => setSelectedEmployee(isSelected ? null : employee)}
+              className={cn(
+                "flex-1 min-w-[220px] max-w-[320px] bg-card rounded-xl border p-4 cursor-pointer transition-all",
+                isSelected 
+                  ? 'border-primary ring-2 ring-primary/20 shadow-lg' 
+                  : 'border-border hover:border-primary/50 hover:shadow-md'
+              )}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-primary-foreground font-semibold text-sm">
+                  {getInitials(employee.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium text-card-foreground truncate text-sm">{employee.name}</h3>
+                  <p className="text-xs text-muted-foreground truncate">{employee.role}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50">
+                  <Circle className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">{pendingCount}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/20">
+                  <Clock className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary">{inProgressCount}</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/20">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success" />
+                  <span className="text-xs font-medium text-success">{completedCount}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
@@ -308,24 +364,12 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-3">
-          <select
-            value={filterEmployee}
-            onChange={(e) => setFilterEmployee(e.target.value)}
-            className="px-3 py-2 bg-muted rounded-lg text-sm border-0 outline-none"
-          >
-            <option value="">Todos funcionários</option>
-            {employees.filter(e => e.status === 'active').map(emp => (
-              <option key={emp.id} value={emp.id}>{emp.name}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => { resetForm(); setIsModalOpen(true); }}
-            className="flex items-center gap-2 px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" /> Nova Tarefa
-          </button>
-        </div>
+        <button
+          onClick={() => { resetForm(); setIsModalOpen(true); }}
+          className="flex items-center gap-2 px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" /> Nova Tarefa
+        </button>
       </div>
 
       {/* Tasks List */}
