@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy } from 'lucide-react';
+import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy, ChevronDown, Circle, CheckCircle2, Clock } from 'lucide-react';
 import { getFromStorage, saveToStorage, Task, Client, Employee, generateId } from '@/lib/storage';
 import { Modal } from '@/components/ui/modal';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import { format, isToday, isTomorrow, isThisWeek, isThisMonth, isPast } from 'date-fns';
@@ -36,8 +35,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [filterType, setFilterType] = useState<FilterType>('all');
   const [filterEmployee, setFilterEmployee] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
@@ -181,7 +179,6 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
         task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.description.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesEmployee = !filterEmployee || task.responsibleId === filterEmployee;
-      const matchesStatus = !filterStatus || task.status === filterStatus;
       
       let matchesFilter = true;
       const dueDate = new Date(task.dueDate);
@@ -204,12 +201,52 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
           break;
       }
 
-      return matchesSearch && matchesEmployee && matchesStatus && matchesFilter;
+      return matchesSearch && matchesEmployee && matchesFilter;
     });
   };
 
-  const pendingTasks = filterTasks(tasks.filter(t => t.status !== 'completed'));
-  const completedTasks = filterTasks(tasks.filter(t => t.status === 'completed'));
+  const toggleSection = (section: string) => {
+    setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  const openModalWithStatus = (status: Task['status']) => {
+    resetForm();
+    setFormData(prev => ({ ...prev, status }));
+    setIsModalOpen(true);
+  };
+
+  // Group tasks by status
+  const filteredTasks = filterTasks(tasks);
+  const todoTasks = filteredTasks.filter(t => t.status === 'pending');
+  const inProgressTasks = filteredTasks.filter(t => t.status === 'in_progress');
+  const completedTasks = filteredTasks.filter(t => t.status === 'completed');
+
+  const statusSections = [
+    { 
+      key: 'completed', 
+      label: 'CONCLUÍDA', 
+      tasks: completedTasks, 
+      icon: CheckCircle2, 
+      color: 'bg-success text-success-foreground',
+      iconColor: 'text-success'
+    },
+    { 
+      key: 'in_progress', 
+      label: 'EM ANDAMENTO', 
+      tasks: inProgressTasks, 
+      icon: Clock, 
+      color: 'bg-primary text-primary-foreground',
+      iconColor: 'text-primary'
+    },
+    { 
+      key: 'pending', 
+      label: 'A FAZER', 
+      tasks: todoTasks, 
+      icon: Circle, 
+      color: 'bg-muted text-muted-foreground',
+      iconColor: 'text-muted-foreground'
+    },
+  ];
 
   const stats = {
     total: tasks.length,
@@ -283,7 +320,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
       </div>
 
       {/* Tasks List */}
-      {pendingTasks.length === 0 && completedTasks.length === 0 ? (
+      {filteredTasks.length === 0 ? (
         <EmptyState
           icon={Check}
           title="Nenhuma tarefa encontrada"
@@ -294,97 +331,119 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
           }}
         />
       ) : (
-        <div className="space-y-6">
-          {/* Pending Tasks */}
-          <div className="space-y-2">
-            {pendingTasks.map(task => (
-              <div 
-                key={task.id} 
-                className="bg-card rounded-xl border border-border p-3 card-hover"
-              >
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handleToggleComplete(task)}
-                    className="w-5 h-5 rounded-full border-2 border-muted-foreground hover:border-primary flex items-center justify-center flex-shrink-0 transition-colors"
-                  />
-                  <h3 className="flex-1 font-medium text-card-foreground text-sm truncate">
-                    {task.title}
-                  </h3>
-                  <StatusBadge status={task.status} type="task" />
-                  <div className="relative" ref={openDropdownId === task.id ? dropdownRef : null}>
-                    <button
-                      onClick={() => setOpenDropdownId(openDropdownId === task.id ? null : task.id)}
-                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                    {openDropdownId === task.id && (
-                      <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
-                        <button
-                          onClick={() => handleRename(task)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                          Renomear
-                        </button>
-                        <button
-                          onClick={() => handleDuplicate(task)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
-                        >
-                          <Copy className="w-4 h-4" />
-                          Duplicar
-                        </button>
-                        <button
-                          onClick={() => handleDelete(task.id)}
-                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Excluir
-                        </button>
-                      </div>
-                    )}
-                  </div>
+        <div className="space-y-4">
+          {statusSections.map(section => (
+            <div key={section.key} className="bg-card rounded-xl border border-border overflow-hidden">
+              {/* Section Header */}
+              <div className="flex items-center gap-3 p-3 border-b border-border">
+                <button
+                  onClick={() => toggleSection(section.key)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronDown className={cn(
+                    "w-4 h-4 transition-transform",
+                    collapsedSections[section.key] && "-rotate-90"
+                  )} />
+                </button>
+                <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold", section.color)}>
+                  <section.icon className="w-3.5 h-3.5" />
+                  {section.label}
                 </div>
+                <span className="text-sm text-muted-foreground">{section.tasks.length}</span>
+                <button
+                  onClick={() => openModalWithStatus(section.key as Task['status'])}
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary transition-colors ml-auto"
+                >
+                  <Plus className="w-4 h-4" />
+                  Adicionar Tarefa
+                </button>
               </div>
-            ))}
-          </div>
 
-          {/* Completed Tasks Toggle */}
-          {completedTasks.length > 0 && (
-            <div>
-              <button
-                onClick={() => setShowCompleted(!showCompleted)}
-                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Check className="w-4 h-4" />
-                {showCompleted ? 'Ocultar' : 'Mostrar'} {completedTasks.length} tarefa(s) concluída(s)
-              </button>
-              
-              {showCompleted && (
-                <div className="mt-3 space-y-2">
-                  {completedTasks.map(task => (
-                    <div 
-                      key={task.id} 
-                      className="bg-card/50 rounded-xl border border-border p-3 opacity-60"
-                    >
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleToggleComplete(task)}
-                          className="w-5 h-5 rounded-full bg-success border-success text-success-foreground flex items-center justify-center flex-shrink-0"
-                        >
-                          <Check className="w-3 h-3" />
-                        </button>
-                        <h3 className="flex-1 font-medium text-muted-foreground line-through text-sm truncate">
-                          {task.title}
-                        </h3>
-                        <StatusBadge status={task.status} type="task" />
+              {/* Section Content */}
+              {!collapsedSections[section.key] && (
+                <div>
+                  {section.tasks.length > 0 ? (
+                    <>
+                      <div className="px-4 py-2 text-xs text-muted-foreground font-medium border-b border-border/50">
+                        Nome
                       </div>
+                      {section.tasks.map(task => (
+                        <div 
+                          key={task.id} 
+                          className="flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
+                        >
+                          <button
+                            onClick={() => handleToggleComplete(task)}
+                            className={cn(
+                              "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
+                              task.status === 'completed' 
+                                ? "bg-success text-success-foreground" 
+                                : task.status === 'in_progress'
+                                ? "border-2 border-primary text-primary"
+                                : "border-2 border-muted-foreground/50 hover:border-primary"
+                            )}
+                          >
+                            {task.status === 'completed' && <Check className="w-3 h-3" />}
+                            {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                          </button>
+                          <h3 className={cn(
+                            "flex-1 text-sm",
+                            task.status === 'completed' && 'line-through text-muted-foreground'
+                          )}>
+                            {task.title}
+                          </h3>
+                          <div className="relative" ref={openDropdownId === task.id ? dropdownRef : null}>
+                            <button
+                              onClick={() => setOpenDropdownId(openDropdownId === task.id ? null : task.id)}
+                              className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                            {openDropdownId === task.id && (
+                              <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
+                                <button
+                                  onClick={() => handleRename(task)}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                  Renomear
+                                </button>
+                                <button
+                                  onClick={() => handleDuplicate(task)}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                >
+                                  <Copy className="w-4 h-4" />
+                                  Duplicar
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(task.id)}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Excluir
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                      Nenhuma tarefa nesta seção
                     </div>
-                  ))}
+                  )}
+                  <button
+                    onClick={() => openModalWithStatus(section.key as Task['status'])}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground hover:text-primary hover:bg-muted/30 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Adicionar Tarefa
+                  </button>
                 </div>
               )}
             </div>
-          )}
+          ))}
         </div>
       )}
 
