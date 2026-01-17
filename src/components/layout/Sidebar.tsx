@@ -59,7 +59,7 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
             <div className="w-8 h-8 rounded-lg btn-primary-gradient flex items-center justify-center">
               <Sparkles className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-lg text-sidebar-foreground">Agency Hub</span>
+            <span className="font-bold text-lg text-sidebar-foreground">Okto Lab</span>
           </div>
         )}
         <button
@@ -127,7 +127,7 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
         </button>
         {!collapsed && (
           <div className="text-xs text-sidebar-muted text-center mt-3">
-            © 2024 Agency Hub
+            © 2024 Okto Lab
           </div>
         )}
       </div>
