@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Check, X, MessageSquare, Send, Filter } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Check, X, MessageSquare, Send, Image, Video, FileText, User } from 'lucide-react';
 import { getFromStorage, saveToStorage, Content, Client, Employee, Comment, generateId } from '@/lib/storage';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -35,6 +35,8 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [newComment, setNewComment] = useState('');
   const [filterClient, setFilterClient] = useState('');
+  const [currentUser] = useState({ id: 'current-user', name: 'Você' }); // Simular usuário atual
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setContents(getFromStorage<Content>('contents'));
@@ -42,6 +44,13 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     setEmployees(getFromStorage<Employee>('employees'));
     setComments(getFromStorage<Comment>('comments'));
   }, []);
+
+  // Scroll to bottom when new message is added
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [comments, selectedContent]);
 
   const pendingContents = contents.filter(c => {
     const matchesPending = c.status === 'pending';
@@ -52,11 +61,12 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
 
   const getClientName = (id: string) => clients.find(c => c.id === id)?.name || 'Cliente';
   const getClientColor = (id: string) => clients.find(c => c.id === id)?.color || '#3B82F6';
-  const getEmployeeName = (id: string) => employees.find(e => e.id === id)?.name || 'Não atribuído';
+  const getEmployee = (id: string) => employees.find(e => e.id === id);
+  const getEmployeeName = (id: string) => getEmployee(id)?.name || 'Não atribuído';
 
   const getContentComments = (contentId: string) => {
     return comments.filter(c => c.contentId === contentId).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
   };
 
@@ -66,6 +76,21 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     );
     setContents(updatedContents);
     saveToStorage('contents', updatedContents);
+    
+    // Add system comment
+    const comment: Comment = {
+      id: generateId(),
+      contentId: content.id,
+      userId: 'system',
+      userName: 'Sistema',
+      message: '✅ Conteúdo aprovado!',
+      createdAt: new Date().toISOString(),
+      read: true,
+    };
+    const updatedComments = [...comments, comment];
+    setComments(updatedComments);
+    saveToStorage('comments', updatedComments);
+    
     toast.success('Conteúdo aprovado!');
     setSelectedContent(null);
   };
@@ -76,38 +101,22 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     );
     setContents(updatedContents);
     saveToStorage('contents', updatedContents);
-    toast.success('Conteúdo devolvido para produção');
-    setSelectedContent(null);
-  };
-
-  const handleRequestChanges = (content: Content) => {
-    if (!newComment.trim()) {
-      toast.error('Adicione um comentário com as alterações solicitadas');
-      return;
-    }
-
+    
+    // Add system comment
     const comment: Comment = {
       id: generateId(),
       contentId: content.id,
-      userId: 'current-user',
-      userName: 'Você',
-      message: newComment,
+      userId: 'system',
+      userName: 'Sistema',
+      message: '❌ Conteúdo reprovado. Devolvido para produção.',
       createdAt: new Date().toISOString(),
       read: true,
     };
-
-    const updatedComments = [comment, ...comments];
+    const updatedComments = [...comments, comment];
     setComments(updatedComments);
     saveToStorage('comments', updatedComments);
-
-    const updatedContents = contents.map(c =>
-      c.id === content.id ? { ...c, status: 'production' as const } : c
-    );
-    setContents(updatedContents);
-    saveToStorage('contents', updatedContents);
-
-    setNewComment('');
-    toast.success('Alterações solicitadas!');
+    
+    toast.success('Conteúdo devolvido para produção');
     setSelectedContent(null);
   };
 
@@ -117,18 +126,110 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     const comment: Comment = {
       id: generateId(),
       contentId: selectedContent.id,
-      userId: 'current-user',
-      userName: 'Você',
+      userId: currentUser.id,
+      userName: currentUser.name,
       message: newComment,
       createdAt: new Date().toISOString(),
-      read: true,
+      read: false,
     };
 
-    const updatedComments = [comment, ...comments];
+    const updatedComments = [...comments, comment];
     setComments(updatedComments);
     saveToStorage('comments', updatedComments);
     setNewComment('');
-    toast.success('Comentário adicionado!');
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAddComment();
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const renderContentPreview = (content: Content) => {
+    const isVideo = content.type === 'reels' || content.type === 'tiktok' || content.type === 'stories';
+    const isCarousel = content.type === 'carousel';
+
+    return (
+      <div className="h-full flex flex-col">
+        {/* Preview area */}
+        <div 
+          className="flex-1 rounded-xl flex items-center justify-center relative overflow-hidden"
+          style={{ backgroundColor: `${getClientColor(content.clientId)}10` }}
+        >
+          {isVideo ? (
+            <div className="text-center">
+              <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                <Video className="w-12 h-12 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground mb-2">Vídeo: {contentTypes[content.type]}</p>
+              {content.files.length > 0 && (
+                <p className="text-xs text-muted-foreground/70">{content.files[0]}</p>
+              )}
+              {/* Simulate video player controls */}
+              <div className="mt-4 bg-muted/50 rounded-lg p-3 mx-auto max-w-xs">
+                <div className="flex items-center gap-3">
+                  <button className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
+                    ▶
+                  </button>
+                  <div className="flex-1 h-1 bg-muted-foreground/20 rounded-full">
+                    <div className="w-1/3 h-full bg-primary rounded-full"></div>
+                  </div>
+                  <span className="text-xs text-muted-foreground">0:15</span>
+                </div>
+              </div>
+            </div>
+          ) : isCarousel ? (
+            <div className="text-center">
+              <div className="flex gap-2 justify-center mb-4">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center">
+                    <Image className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-muted-foreground">Carrossel ({content.files.length || 3} slides)</p>
+            </div>
+          ) : (
+            <div className="text-center">
+              <div className="w-24 h-24 mx-auto mb-4 rounded-xl bg-muted flex items-center justify-center">
+                <Image className="w-12 h-12 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground mb-2">{contentTypes[content.type]}</p>
+              {content.files.length > 0 && (
+                <p className="text-xs text-muted-foreground/70">{content.files[0]}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Content details */}
+        <div className="mt-4 space-y-3">
+          <div className="p-3 bg-muted/50 rounded-lg">
+            <h4 className="text-sm font-medium text-foreground mb-1">Legenda</h4>
+            <p className="text-sm text-muted-foreground">{content.copy || 'Sem legenda'}</p>
+          </div>
+          
+          {content.hashtags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {content.hashtags.map(tag => (
+                <span key={tag} className="text-xs text-primary">#{tag}</span>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="px-2 py-1 bg-muted rounded">📱 {socialNetworks[content.socialNetwork]}</span>
+            <span className="px-2 py-1 bg-muted rounded">📅 {format(new Date(content.publishDate), "dd/MM/yyyy")}</span>
+            <span className="px-2 py-1 bg-muted rounded">🕐 {content.publishTime}</span>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -162,7 +263,8 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
           {pendingContents.map(content => (
             <div 
               key={content.id} 
-              className="bg-card rounded-xl border border-border overflow-hidden card-hover"
+              onClick={() => setSelectedContent(content)}
+              className="bg-card rounded-xl border border-border overflow-hidden card-hover cursor-pointer"
             >
               {/* Preview placeholder */}
               <div 
@@ -202,112 +304,179 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
 
                 <p className="text-sm text-muted-foreground line-clamp-2 mb-3">{content.copy}</p>
 
-                {content.hashtags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {content.hashtags.slice(0, 4).map(tag => (
-                      <span key={tag} className="text-xs text-primary">#{tag}</span>
-                    ))}
-                  </div>
-                )}
-
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground">
                   Criado por: {getEmployeeName(content.responsibleId)}
                 </p>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleApprove(content)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-success/10 text-success hover:bg-success/20 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Check className="w-4 h-4" /> Aprovar
-                  </button>
-                  <button
-                    onClick={() => handleReject(content)}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <X className="w-4 h-4" /> Reprovar
-                  </button>
-                  <button
-                    onClick={() => setSelectedContent(content)}
-                    className="px-3 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                  </button>
-                </div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Comments Modal */}
+      {/* Content Detail Modal with Chat */}
       <Modal
         isOpen={!!selectedContent}
         onClose={() => { setSelectedContent(null); setNewComment(''); }}
-        title="Comentários e Feedback"
-        size="lg"
+        title=""
+        size="xl"
       >
         {selectedContent && (
-          <div className="space-y-4">
-            {/* Content Summary */}
-            <div className="p-4 bg-muted rounded-lg">
-              <h4 className="font-semibold mb-1">{selectedContent.title}</h4>
-              <p className="text-sm text-muted-foreground">{getClientName(selectedContent.clientId)}</p>
-            </div>
-
-            {/* Add Comment */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                placeholder="Adicionar comentário..."
-                className="flex-1 px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-                onKeyPress={(e) => e.key === 'Enter' && handleAddComment()}
-              />
-              <button
-                onClick={handleAddComment}
-                className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Comments List */}
-            <div className="space-y-3 max-h-64 overflow-y-auto">
-              {getContentComments(selectedContent.id).map(comment => (
-                <div key={comment.id} className="p-3 bg-muted/50 rounded-lg">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-medium text-sm">{comment.userName}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {format(new Date(comment.createdAt), "dd/MM 'às' HH:mm")}
-                    </span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{comment.message}</p>
+          <div className="flex flex-col lg:flex-row gap-6 h-[70vh] min-h-[500px]">
+            {/* Left Column - Content Preview */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: getClientColor(selectedContent.clientId) }}
+                  />
+                  <span className="text-sm text-muted-foreground">{getClientName(selectedContent.clientId)}</span>
                 </div>
-              ))}
-              {getContentComments(selectedContent.id).length === 0 && (
-                <p className="text-center text-muted-foreground py-4 text-sm">
-                  Nenhum comentário ainda
-                </p>
-              )}
+                <h3 className="text-lg font-bold text-foreground">{selectedContent.title}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <StatusBadge status={selectedContent.status} type="content" />
+                  <span className="text-xs text-muted-foreground">• {contentTypes[selectedContent.type]}</span>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto">
+                {renderContentPreview(selectedContent)}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2 mt-4 pt-4 border-t border-border">
+                <button
+                  onClick={() => handleApprove(selectedContent)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-success text-success-foreground rounded-lg font-medium hover:bg-success/90 transition-colors"
+                >
+                  <Check className="w-4 h-4" /> Aprovar
+                </button>
+                <button
+                  onClick={() => handleReject(selectedContent)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-destructive text-destructive-foreground rounded-lg font-medium hover:bg-destructive/90 transition-colors"
+                >
+                  <X className="w-4 h-4" /> Reprovar
+                </button>
+              </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 pt-4 border-t border-border">
-              <button
-                onClick={() => handleApprove(selectedContent)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-success text-success-foreground rounded-lg font-medium"
-              >
-                <Check className="w-4 h-4" /> Aprovar
-              </button>
-              <button
-                onClick={() => handleRequestChanges(selectedContent)}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-warning text-warning-foreground rounded-lg font-medium"
-              >
-                Solicitar Alterações
-              </button>
+            {/* Right Column - Chat */}
+            <div className="flex-1 flex flex-col bg-muted/30 rounded-xl border border-border overflow-hidden">
+              {/* Chat Header */}
+              <div className="p-4 bg-muted border-b border-border">
+                <h4 className="font-semibold text-foreground flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4" />
+                  Chat de Aprovação
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Converse com {getEmployeeName(selectedContent.responsibleId)} sobre este conteúdo
+                </p>
+              </div>
+
+              {/* Participants */}
+              <div className="px-4 py-2 border-b border-border flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Participantes:</span>
+                <div className="flex -space-x-2">
+                  {/* Current user */}
+                  <div className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center ring-2 ring-background">
+                    {getInitials(currentUser.name)}
+                  </div>
+                  {/* Content responsible */}
+                  {getEmployee(selectedContent.responsibleId) && (
+                    <div className="w-6 h-6 rounded-full bg-secondary text-secondary-foreground text-xs flex items-center justify-center ring-2 ring-background">
+                      {getInitials(getEmployeeName(selectedContent.responsibleId))}
+                    </div>
+                  )}
+                  {/* Client responsible (from client data) */}
+                  {clients.find(c => c.id === selectedContent.clientId)?.responsibleId && (
+                    <div className="w-6 h-6 rounded-full bg-accent text-accent-foreground text-xs flex items-center justify-center ring-2 ring-background">
+                      {getInitials(getEmployeeName(clients.find(c => c.id === selectedContent.clientId)?.responsibleId || ''))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {getContentComments(selectedContent.id).length === 0 ? (
+                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+                    <MessageSquare className="w-12 h-12 mb-3 opacity-50" />
+                    <p className="text-sm">Nenhuma mensagem ainda</p>
+                    <p className="text-xs">Inicie uma conversa sobre este conteúdo</p>
+                  </div>
+                ) : (
+                  <>
+                    {getContentComments(selectedContent.id).map(comment => {
+                      const isCurrentUser = comment.userId === currentUser.id;
+                      const isSystem = comment.userId === 'system';
+
+                      if (isSystem) {
+                        return (
+                          <div key={comment.id} className="flex justify-center">
+                            <div className="px-3 py-1.5 bg-muted rounded-full text-xs text-muted-foreground">
+                              {comment.message}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div 
+                          key={comment.id} 
+                          className={`flex items-end gap-2 ${isCurrentUser ? 'flex-row-reverse' : ''}`}
+                        >
+                          <div 
+                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium flex-shrink-0 ${
+                              isCurrentUser 
+                                ? 'bg-primary text-primary-foreground' 
+                                : 'bg-secondary text-secondary-foreground'
+                            }`}
+                          >
+                            {getInitials(comment.userName)}
+                          </div>
+                          <div 
+                            className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                              isCurrentUser 
+                                ? 'bg-primary text-primary-foreground rounded-br-sm' 
+                                : 'bg-muted text-foreground rounded-bl-sm'
+                            }`}
+                          >
+                            {!isCurrentUser && (
+                              <p className="text-xs font-medium mb-1 opacity-70">{comment.userName}</p>
+                            )}
+                            <p className="text-sm">{comment.message}</p>
+                            <p className={`text-[10px] mt-1 ${isCurrentUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                              {format(new Date(comment.createdAt), "HH:mm")}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={chatEndRef} />
+                  </>
+                )}
+              </div>
+
+              {/* Message Input */}
+              <div className="p-4 bg-background border-t border-border">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Digite sua mensagem..."
+                    className="flex-1 px-4 py-2.5 bg-muted rounded-full border-0 outline-none focus:ring-2 focus:ring-primary text-sm"
+                  />
+                  <button
+                    onClick={handleAddComment}
+                    disabled={!newComment.trim()}
+                    className="p-2.5 bg-primary text-primary-foreground rounded-full hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
