@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Plus, Edit2, Trash2, Check, Calendar, Filter, User } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Check, MoreHorizontal, Edit2, Trash2, Copy } from 'lucide-react';
 import { getFromStorage, saveToStorage, Task, Client, Employee, generateId } from '@/lib/storage';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -38,6 +38,8 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [filterEmployee, setFilterEmployee] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -48,6 +50,17 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     status: 'pending' as Task['status'],
     tags: '',
   });
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setOpenDropdownId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     setTasks(getFromStorage<Task>('tasks'));
@@ -135,6 +148,28 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     setTasks(updatedTasks);
     saveToStorage('tasks', updatedTasks);
     toast.success('Tarefa excluída!');
+    setOpenDropdownId(null);
+  };
+
+  const handleDuplicate = (task: Task) => {
+    const duplicatedTask: Task = {
+      ...task,
+      id: generateId(),
+      title: `${task.title} (cópia)`,
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      completedAt: undefined,
+    };
+    const updatedTasks = [duplicatedTask, ...tasks];
+    setTasks(updatedTasks);
+    saveToStorage('tasks', updatedTasks);
+    toast.success('Tarefa duplicada!');
+    setOpenDropdownId(null);
+  };
+
+  const handleRename = (task: Task) => {
+    handleEdit(task);
+    setOpenDropdownId(null);
   };
 
   const getClientName = (id?: string) => id ? clients.find(c => c.id === id)?.name : null;
@@ -261,88 +296,57 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
       ) : (
         <div className="space-y-6">
           {/* Pending Tasks */}
-          <div className="space-y-3">
-            {pendingTasks.map(task => {
-              const isOverdue = isPast(new Date(task.dueDate)) && task.status !== 'completed';
-              return (
-                <div 
-                  key={task.id} 
-                  className={cn(
-                    "bg-card rounded-xl border p-4 card-hover",
-                    isOverdue ? 'border-destructive/50' : 'border-border'
-                  )}
-                >
-                  <div className="flex items-start gap-4">
+          <div className="space-y-2">
+            {pendingTasks.map(task => (
+              <div 
+                key={task.id} 
+                className="bg-card rounded-xl border border-border p-3 card-hover"
+              >
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleToggleComplete(task)}
+                    className="w-5 h-5 rounded-full border-2 border-muted-foreground hover:border-primary flex items-center justify-center flex-shrink-0 transition-colors"
+                  />
+                  <h3 className="flex-1 font-medium text-card-foreground text-sm truncate">
+                    {task.title}
+                  </h3>
+                  <StatusBadge status={task.status} type="task" />
+                  <div className="relative" ref={openDropdownId === task.id ? dropdownRef : null}>
                     <button
-                      onClick={() => handleToggleComplete(task)}
-                      className={cn(
-                        'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors',
-                        task.status === 'completed' 
-                          ? 'bg-success border-success text-success-foreground' 
-                          : 'border-muted-foreground hover:border-primary'
-                      )}
+                      onClick={() => setOpenDropdownId(openDropdownId === task.id ? null : task.id)}
+                      className="p-1.5 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
                     >
-                      {task.status === 'completed' && <Check className="w-4 h-4" />}
+                      <MoreHorizontal className="w-4 h-4" />
                     </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4 mb-1">
-                        <h3 className={cn(
-                          "font-semibold text-card-foreground",
-                          task.status === 'completed' && 'line-through text-muted-foreground'
-                        )}>
-                          {task.title}
-                        </h3>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <StatusBadge status={task.priority} type="priority" />
-                          <StatusBadge status={task.status} type="task" />
-                        </div>
+                    {openDropdownId === task.id && (
+                      <div className="absolute right-0 top-full mt-1 w-40 bg-popover border border-border rounded-lg shadow-lg z-50 py-1">
+                        <button
+                          onClick={() => handleRename(task)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Renomear
+                        </button>
+                        <button
+                          onClick={() => handleDuplicate(task)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                        >
+                          <Copy className="w-4 h-4" />
+                          Duplicar
+                        </button>
+                        <button
+                          onClick={() => handleDelete(task.id)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Excluir
+                        </button>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-2">{task.description}</p>
-                      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                        <span className={cn(
-                          "flex items-center gap-1",
-                          isOverdue && 'text-destructive'
-                        )}>
-                          <Calendar className="w-3 h-3" />
-                          {format(new Date(task.dueDate), "dd 'de' MMM", { locale: ptBR })}
-                          {isOverdue && ' (Atrasada)'}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          {getEmployeeName(task.responsibleId)}
-                        </span>
-                        {task.clientId && (
-                          <span>📋 {getClientName(task.clientId)}</span>
-                        )}
-                      </div>
-                      {task.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {task.tags.map(tag => (
-                            <span key={tag} className="px-2 py-0.5 bg-muted text-muted-foreground text-xs rounded-full">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => handleEdit(task)}
-                        className="p-1.5 text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(task.id)}
-                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    )}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
 
           {/* Completed Tasks Toggle */}
@@ -357,27 +361,23 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
               </button>
               
               {showCompleted && (
-                <div className="mt-3 space-y-3">
+                <div className="mt-3 space-y-2">
                   {completedTasks.map(task => (
                     <div 
                       key={task.id} 
-                      className="bg-card/50 rounded-xl border border-border p-4 opacity-60"
+                      className="bg-card/50 rounded-xl border border-border p-3 opacity-60"
                     >
-                      <div className="flex items-start gap-4">
+                      <div className="flex items-center gap-3">
                         <button
                           onClick={() => handleToggleComplete(task)}
-                          className="w-6 h-6 rounded-full bg-success border-success text-success-foreground flex items-center justify-center flex-shrink-0"
+                          className="w-5 h-5 rounded-full bg-success border-success text-success-foreground flex items-center justify-center flex-shrink-0"
                         >
-                          <Check className="w-4 h-4" />
+                          <Check className="w-3 h-3" />
                         </button>
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-muted-foreground line-through">
-                            {task.title}
-                          </h3>
-                          <p className="text-sm text-muted-foreground">
-                            Concluída em {format(new Date(task.completedAt!), "dd/MM/yyyy", { locale: ptBR })}
-                          </p>
-                        </div>
+                        <h3 className="flex-1 font-medium text-muted-foreground line-through text-sm truncate">
+                          {task.title}
+                        </h3>
+                        <StatusBadge status={task.status} type="task" />
                       </div>
                     </div>
                   ))}
