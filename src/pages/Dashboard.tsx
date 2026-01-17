@@ -6,9 +6,10 @@ import {
   Calendar, 
   TrendingUp, 
   ArrowRight,
-  CheckSquare
+  CheckSquare,
+  Image as ImageIcon
 } from 'lucide-react';
-import { getFromStorage, Client, Content, Task } from '@/lib/storage';
+import { getFromStorage, Client, Content, Task, Employee } from '@/lib/storage';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -48,11 +49,14 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [contents, setContents] = useState<Content[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
 
   useEffect(() => {
     setClients(getFromStorage<Client>('clients'));
     setContents(getFromStorage<Content>('contents'));
     setTasks(getFromStorage<Task>('tasks'));
+    setEmployees(getFromStorage<Employee>('employees'));
   }, []);
 
   // Métricas
@@ -62,7 +66,17 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   
   const today = new Date().toISOString().split('T')[0];
   const todayPosts = contents.filter(c => c.publishDate === today).length;
-  const todayTasks = tasks.filter(t => t.dueDate === today && t.status !== 'completed');
+  const allTodayTasks = tasks.filter(t => t.dueDate === today && t.status !== 'completed');
+  
+  // Filtrar tarefas por funcionário selecionado
+  const todayTasks = selectedEmployeeId
+    ? allTodayTasks.filter(t => t.responsibleId === selectedEmployeeId)
+    : allTodayTasks;
+
+  // Funcionários que têm tarefas hoje
+  const employeesWithTodayTasks = employees.filter(emp => 
+    allTodayTasks.some(t => t.responsibleId === emp.id)
+  );
 
   // Próximas publicações (aprovados para postar)
   const upcomingPublications = contents
@@ -122,6 +136,36 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               Ver todas <ArrowRight className="w-4 h-4" />
             </button>
           </div>
+          
+          {/* Employee Filter Tabs */}
+          {employeesWithTodayTasks.length > 0 && (
+            <div className="px-4 pt-4 flex gap-2 flex-wrap">
+              <button
+                onClick={() => setSelectedEmployeeId(null)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  selectedEmployeeId === null
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                Todos
+              </button>
+              {employeesWithTodayTasks.map(emp => (
+                <button
+                  key={emp.id}
+                  onClick={() => setSelectedEmployeeId(emp.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    selectedEmployeeId === emp.id
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+                >
+                  {emp.name.split(' ')[0]}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="p-4 space-y-3">
             {todayTasks.slice(0, 5).map(task => (
               <div key={task.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
@@ -159,10 +203,13 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               const client = clients.find(c => c.id === content.clientId);
               return (
                 <div key={content.id} className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                  <div
-                    className="w-1.5 h-12 rounded-full flex-shrink-0"
+                  {/* Preview Square */}
+                  <div 
+                    className="w-12 h-12 rounded-lg flex-shrink-0 flex items-center justify-center"
                     style={{ backgroundColor: client?.color || '#3B82F6' }}
-                  />
+                  >
+                    <ImageIcon className="w-5 h-5 text-white/80" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm text-card-foreground truncate">{content.title}</p>
                     <p className="text-xs text-muted-foreground">
