@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, MessageSquare, Send, Image, Video, Plus, User, Filter, Upload, Link, FileVideo, FileImage } from 'lucide-react';
+import { Check, X, MessageSquare, Send, Image, Video, Plus, User, Filter, Upload, Link, FileVideo, FileImage, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { getFromStorage, saveToStorage, Content, Client, Employee, Comment, generateId } from '@/lib/storage';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -362,20 +362,22 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
       ) : (
         <div className="flex flex-wrap gap-3">
           {creativeEmployees.map(employee => {
-            const totalCount = contents.filter(c => c.responsibleId === employee.id).length;
+            const pendingCount = getContentCountByStatus(employee.id, 'pending');
+            const approvedCount = getContentCountByStatus(employee.id, 'approved');
+            const rejectedCount = getContentCountByStatus(employee.id, 'rejected');
             const isSelected = selectedEmployee?.id === employee.id;
 
             return (
               <div
                 key={employee.id}
                 onClick={() => setSelectedEmployee(isSelected ? null : employee)}
-                className={`flex-1 min-w-[200px] max-w-[300px] bg-card rounded-xl border p-4 cursor-pointer transition-all ${
+                className={`flex-1 min-w-[220px] max-w-[320px] bg-card rounded-xl border p-4 cursor-pointer transition-all ${
                   isSelected 
                     ? 'border-primary ring-2 ring-primary/20 shadow-lg' 
                     : 'border-border hover:border-primary/50 hover:shadow-md'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center text-primary-foreground font-semibold text-sm">
                     {getInitials(employee.name)}
                   </div>
@@ -383,8 +385,20 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
                     <h3 className="font-medium text-card-foreground truncate text-sm">{employee.name}</h3>
                     <p className="text-xs text-muted-foreground truncate">{employee.role}</p>
                   </div>
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold text-sm">
-                    {totalCount}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-warning/30">
+                    <Clock className="w-3.5 h-3.5 text-warning" />
+                    <span className="text-xs font-medium text-warning">{pendingCount}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-success/30">
+                    <CheckCircle className="w-3.5 h-3.5 text-success" />
+                    <span className="text-xs font-medium text-success">{approvedCount}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-destructive/30">
+                    <XCircle className="w-3.5 h-3.5 text-destructive" />
+                    <span className="text-xs font-medium text-destructive">{rejectedCount}</span>
                   </div>
                 </div>
               </div>
