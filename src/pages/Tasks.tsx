@@ -37,7 +37,9 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [filterEmployee, setFilterEmployee] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [openStatusDropdownId, setOpenStatusDropdownId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -49,11 +51,14 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     tags: '',
   });
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setOpenDropdownId(null);
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+        setOpenStatusDropdownId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -127,18 +132,24 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     setIsModalOpen(true);
   };
 
-  const handleToggleComplete = (task: Task) => {
-    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+  const handleChangeStatus = (task: Task, newStatus: Task['status']) => {
     const updatedTasks = tasks.map(t =>
       t.id === task.id ? { 
         ...t, 
-        status: newStatus as Task['status'],
+        status: newStatus,
         completedAt: newStatus === 'completed' ? new Date().toISOString() : undefined
       } : t
     );
     setTasks(updatedTasks);
     saveToStorage('tasks', updatedTasks);
-    toast.success(newStatus === 'completed' ? 'Tarefa concluída!' : 'Tarefa reaberta!');
+    setOpenStatusDropdownId(null);
+    toast.success('Status atualizado!');
+  };
+
+  const handleToggleComplete = (task: Task) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    handleChangeStatus(task, newStatus);
+  };
   };
 
   const handleDelete = (id: string) => {
@@ -372,20 +383,62 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                           key={task.id} 
                           className="flex items-center gap-3 px-4 py-3 border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors"
                         >
-                          <button
-                            onClick={() => handleToggleComplete(task)}
-                            className={cn(
-                              "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
-                              task.status === 'completed' 
-                                ? "bg-success text-success-foreground" 
-                                : task.status === 'in_progress'
-                                ? "border-2 border-primary text-primary"
-                                : "border-2 border-muted-foreground/50 hover:border-primary"
+                          {/* Status Dropdown */}
+                          <div className="relative" ref={openStatusDropdownId === task.id ? statusDropdownRef : null}>
+                            <button
+                              onClick={() => setOpenStatusDropdownId(openStatusDropdownId === task.id ? null : task.id)}
+                              className={cn(
+                                "w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors",
+                                task.status === 'completed' 
+                                  ? "bg-success text-success-foreground" 
+                                  : task.status === 'in_progress'
+                                  ? "border-2 border-primary text-primary"
+                                  : "border-2 border-muted-foreground/50 hover:border-primary"
+                              )}
+                            >
+                              {task.status === 'completed' && <Check className="w-3 h-3" />}
+                              {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-primary" />}
+                            </button>
+                            {openStatusDropdownId === task.id && (
+                              <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-50 py-2">
+                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium">Não iniciado</div>
+                                <button
+                                  onClick={() => handleChangeStatus(task, 'pending')}
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Circle className="w-4 h-4 text-muted-foreground" />
+                                    A FAZER
+                                  </div>
+                                  {task.status === 'pending' && <Check className="w-4 h-4 text-primary" />}
+                                </button>
+                                
+                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium mt-1">Ativo</div>
+                                <button
+                                  onClick={() => handleChangeStatus(task, 'in_progress')}
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Clock className="w-4 h-4 text-primary" />
+                                    EM ANDAMENTO
+                                  </div>
+                                  {task.status === 'in_progress' && <Check className="w-4 h-4 text-primary" />}
+                                </button>
+                                
+                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium mt-1">Fechado</div>
+                                <button
+                                  onClick={() => handleChangeStatus(task, 'completed')}
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-4 h-4 text-success" />
+                                    CONCLUÍDA
+                                  </div>
+                                  {task.status === 'completed' && <Check className="w-4 h-4 text-primary" />}
+                                </button>
+                              </div>
                             )}
-                          >
-                            {task.status === 'completed' && <Check className="w-3 h-3" />}
-                            {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-primary" />}
-                          </button>
+                          </div>
                           <h3 className={cn(
                             "flex-1 text-sm",
                             task.status === 'completed' && 'line-through text-muted-foreground'
