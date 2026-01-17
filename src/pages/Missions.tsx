@@ -418,53 +418,6 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </Dialog>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/20">
-                <Target className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-xl font-bold text-foreground">{availableMissions.length}</p>
-                <p className="text-xs text-muted-foreground">Disponíveis</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-warning/10 to-warning/5 border-warning/20">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-warning/20">
-                <Clock className="w-5 h-5 text-warning" />
-              </div>
-              <div>
-                <p className="text-xl font-bold text-foreground">{inProgressMissions.length}</p>
-                <p className="text-xs text-muted-foreground">Em Andamento</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-success/10 to-success/5 border-success/20">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-success/20">
-                <CheckCircle2 className="w-5 h-5 text-success" />
-              </div>
-              <div>
-                <p className="text-xl font-bold text-foreground">{completedMissions.length}</p>
-                <p className="text-xs text-muted-foreground">Concluídas</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-destructive/10 to-destructive/5 border-destructive/20">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-destructive/20">
-                <AlertTriangle className="w-5 h-5 text-destructive" />
-              </div>
-              <div>
-                <p className="text-xl font-bold text-foreground">{expiredMissions.length}</p>
-                <p className="text-xs text-muted-foreground">Expiradas</p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
         {/* Mission Lists */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
