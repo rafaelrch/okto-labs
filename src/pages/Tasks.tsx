@@ -150,7 +150,6 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
     handleChangeStatus(task, newStatus);
   };
-  };
 
   const handleDelete = (id: string) => {
     const updatedTasks = tasks.filter(t => t.id !== id);
