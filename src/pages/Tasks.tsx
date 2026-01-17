@@ -399,11 +399,13 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                               {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-primary" />}
                             </button>
                             {openStatusDropdownId === task.id && (
-                              <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-50 py-2">
-                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium">Não iniciado</div>
+                              <div className="fixed inset-0 z-[9998]" onClick={() => setOpenStatusDropdownId(null)} />
+                            )}
+                            {openStatusDropdownId === task.id && (
+                              <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-xl z-[9999] py-1">
                                 <button
                                   onClick={() => handleChangeStatus(task, 'pending')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
                                 >
                                   <div className="flex items-center gap-2">
                                     <Circle className="w-4 h-4 text-muted-foreground" />
@@ -411,11 +413,9 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                                   </div>
                                   {task.status === 'pending' && <Check className="w-4 h-4 text-primary" />}
                                 </button>
-                                
-                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium mt-1">Ativo</div>
                                 <button
                                   onClick={() => handleChangeStatus(task, 'in_progress')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
                                 >
                                   <div className="flex items-center gap-2">
                                     <Clock className="w-4 h-4 text-primary" />
@@ -423,11 +423,9 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
                                   </div>
                                   {task.status === 'in_progress' && <Check className="w-4 h-4 text-primary" />}
                                 </button>
-                                
-                                <div className="px-3 py-1.5 text-xs text-muted-foreground font-medium mt-1">Fechado</div>
                                 <button
                                   onClick={() => handleChangeStatus(task, 'completed')}
-                                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-popover-foreground hover:bg-muted transition-colors"
+                                  className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-popover-foreground hover:bg-muted transition-colors"
                                 >
                                   <div className="flex items-center gap-2">
                                     <CheckCircle2 className="w-4 h-4 text-success" />
