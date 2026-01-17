@@ -1,13 +1,55 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useEffect } from 'react';
+import { Layout } from '@/components/layout/Layout';
+import { Dashboard } from '@/pages/Dashboard';
+import { IdeasPage } from '@/pages/Ideas';
+import { ClientsPage } from '@/pages/Clients';
+import { SchedulePage } from '@/pages/Schedule';
+import { ApprovalsPage } from '@/pages/Approvals';
+import { CalendarPage } from '@/pages/Calendar';
+import { TasksPage } from '@/pages/Tasks';
+import { EmployeesPage } from '@/pages/Employees';
+import { initializeMockData } from '@/lib/storage';
 
 const Index = () => {
+  const [currentPage, setCurrentPage] = useState('dashboard');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    initializeMockData();
+  }, []);
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'dashboard':
+        return <Dashboard onNavigate={setCurrentPage} />;
+      case 'ideas':
+        return <IdeasPage searchQuery={searchQuery} />;
+      case 'clients':
+        return <ClientsPage searchQuery={searchQuery} />;
+      case 'schedule':
+        return <SchedulePage searchQuery={searchQuery} />;
+      case 'approvals':
+        return <ApprovalsPage searchQuery={searchQuery} />;
+      case 'calendar':
+        return <CalendarPage searchQuery={searchQuery} />;
+      case 'tasks':
+        return <TasksPage searchQuery={searchQuery} />;
+      case 'employees':
+        return <EmployeesPage searchQuery={searchQuery} />;
+      default:
+        return <Dashboard onNavigate={setCurrentPage} />;
+    }
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <Layout
+      currentPage={currentPage}
+      onPageChange={setCurrentPage}
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+    >
+      {renderPage()}
+    </Layout>
   );
 };
 
