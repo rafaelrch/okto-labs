@@ -1,19 +1,31 @@
 import { useState } from 'react';
 import {
-  LayoutDashboard,
-  Lightbulb,
-  Users,
-  Calendar,
-  CalendarDays,
-  CheckSquare,
-  ClipboardCheck,
-  UserCircle,
-  ChevronLeft,
-  ChevronRight,
-  Sparkles,
-  LogOut,
-  Target,
-} from 'lucide-react';
+  Squares2X2Icon,
+  LightBulbIcon,
+  UserGroupIcon,
+  CalendarIcon,
+  CalendarDaysIcon,
+  CheckCircleIcon,
+  ClipboardDocumentCheckIcon,
+  UserCircleIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ArrowLeftOnRectangleIcon,
+  RocketLaunchIcon,
+  ChatBubbleLeftIcon,
+} from '@heroicons/react/24/outline';
+import {
+  Squares2X2Icon as Squares2X2IconSolid,
+  LightBulbIcon as LightBulbIconSolid,
+  UserGroupIcon as UserGroupIconSolid,
+  CalendarIcon as CalendarIconSolid,
+  CalendarDaysIcon as CalendarDaysIconSolid,
+  CheckCircleIcon as CheckCircleIconSolid,
+  ClipboardDocumentCheckIcon as ClipboardDocumentCheckIconSolid,
+  UserCircleIcon as UserCircleIconSolid,
+  RocketLaunchIcon as RocketLaunchIconSolid,
+  ChatBubbleLeftIcon as ChatBubbleLeftIconSolid,
+} from '@heroicons/react/24/solid';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -25,15 +37,16 @@ interface SidebarProps {
 }
 
 const menuItems = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'ideas', label: 'Ideias', icon: Lightbulb },
-  { id: 'clients', label: 'Clientes', icon: Users },
-  { id: 'schedule', label: 'Cronograma', icon: Calendar },
-  { id: 'approvals', label: 'Aprovações', icon: ClipboardCheck, badge: 'pendingApprovals' },
-  { id: 'calendar', label: 'Calendário', icon: CalendarDays },
-  { id: 'tasks', label: 'Tarefas', icon: CheckSquare, badge: 'todayTasks' },
-  { id: 'employees', label: 'Funcionários', icon: UserCircle },
-  { id: 'missions', label: 'Missões', icon: Target },
+  { id: 'dashboard', label: 'Dashboard', icon: Squares2X2Icon, iconSolid: Squares2X2IconSolid },
+  { id: 'ideas', label: 'Ideias', icon: LightBulbIcon, iconSolid: LightBulbIconSolid },
+  { id: 'clients', label: 'Clientes', icon: UserGroupIcon, iconSolid: UserGroupIconSolid },
+  { id: 'schedule', label: 'Cronograma', icon: CalendarIcon, iconSolid: CalendarIconSolid },
+  { id: 'approvals', label: 'Aprovações', icon: ClipboardDocumentCheckIcon, iconSolid: ClipboardDocumentCheckIconSolid, badge: 'pendingApprovals' },
+  { id: 'calendar', label: 'Calendário', icon: CalendarDaysIcon, iconSolid: CalendarDaysIconSolid },
+  { id: 'tasks', label: 'Tarefas', icon: CheckCircleIcon, iconSolid: CheckCircleIconSolid, badge: 'todayTasks' },
+  { id: 'employees', label: 'Funcionários', icon: UserCircleIcon, iconSolid: UserCircleIconSolid },
+  { id: 'missions', label: 'Missões', icon: RocketLaunchIcon, iconSolid: RocketLaunchIconSolid },
+  { id: 'suggestions', label: 'Sugestões', icon: ChatBubbleLeftIcon, iconSolid: ChatBubbleLeftIconSolid },
 ];
 
 export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks }: SidebarProps) {
@@ -57,37 +70,47 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-sidebar-border">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg btn-primary-gradient flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="font-bold text-lg text-sidebar-foreground">Okto Lab</span>
+          <div className="flex items-center gap-5">
+            <img 
+              src="/LOGO-LABS.png" 
+              alt="Okto Lab" 
+              className="h-14 w-auto object-contain"
+            />
+          </div>
+        )}
+        {collapsed && (
+          <div className="flex items-center justify-center w-full">
+            <img 
+              src="/LOGO-LABS.png" 
+              alt="Okto Lab" 
+              className="h-8 w-auto object-contain"
+            />
           </div>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="p-1.5 rounded-lg hover:bg-sidebar-accent text-sidebar-muted hover:text-sidebar-foreground transition-colors"
         >
-          {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          {collapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronLeftIcon className="w-4 h-4" />}
         </button>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
-          const Icon = item.icon;
           const badgeValue = item.badge ? badges[item.badge] : 0;
           const isActive = currentPage === item.id;
+          const Icon = isActive ? item.iconSolid : item.icon;
 
           return (
             <button
               key={item.id}
               onClick={() => onPageChange(item.id)}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
+                'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 relative',
                 isActive
-                  ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md shadow-primary/20'
-                  : 'text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent'
+                  ? ' bg-white/5 text-[#ffffff] '
+                  : 'text-[#7c758b] hover:text-sidebar-foreground '
               )}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
@@ -124,7 +147,7 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
             'text-sidebar-muted hover:text-destructive hover:bg-destructive/10'
           )}
         >
-          <LogOut className="w-5 h-5 flex-shrink-0" />
+          <ArrowLeftOnRectangleIcon className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="text-sm font-medium">Sair</span>}
         </button>
         {!collapsed && (

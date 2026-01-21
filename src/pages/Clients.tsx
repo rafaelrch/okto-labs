@@ -25,12 +25,10 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
   const [formData, setFormData] = useState({
     name: '',
     segment: '',
-    logo: '',
     instagram: '',
     facebook: '',
     tiktok: '',
     linkedin: '',
-    responsible_id: '',
     color: '#3B82F6',
     contract_start: '',
     notes: '',
@@ -40,12 +38,10 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     setFormData({
       name: '',
       segment: '',
-      logo: '',
       instagram: '',
       facebook: '',
       tiktok: '',
       linkedin: '',
-      responsible_id: employees[0]?.id || '',
       color: defaultColors[Math.floor(Math.random() * defaultColors.length)],
       contract_start: new Date().toISOString().split('T')[0],
       notes: '',
@@ -56,21 +52,21 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const socials: Record<string, string> = {};
+    if (formData.instagram.trim()) socials.instagram = formData.instagram.trim();
+    if (formData.facebook.trim()) socials.facebook = formData.facebook.trim();
+    if (formData.tiktok.trim()) socials.tiktok = formData.tiktok.trim();
+    if (formData.linkedin.trim()) socials.linkedin = formData.linkedin.trim();
+
     const clientData = {
-      name: formData.name,
-      segment: formData.segment,
-      logo: formData.logo,
-      socials: {
-        instagram: formData.instagram || undefined,
-        facebook: formData.facebook || undefined,
-        tiktok: formData.tiktok || undefined,
-        linkedin: formData.linkedin || undefined,
-      },
-      responsible_id: formData.responsible_id || null,
+      name: formData.name.trim(),
+      segment: formData.segment.trim(),
+      logo: '',
+      socials: socials,
       color: formData.color,
       status: editingClient?.status || 'active' as const,
       contract_start: formData.contract_start || null,
-      notes: formData.notes,
+      notes: formData.notes.trim() || '',
     };
 
     try {
@@ -84,7 +80,9 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
       setIsModalOpen(false);
       resetForm();
     } catch (error) {
-      toast.error('Erro ao salvar cliente');
+      console.error('Erro ao salvar cliente:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
+      toast.error(`Erro ao salvar cliente: ${errorMessage}`);
     }
   };
 
@@ -92,12 +90,10 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     setFormData({
       name: client.name,
       segment: client.segment,
-      logo: client.logo,
       instagram: client.socials?.instagram || '',
       facebook: client.socials?.facebook || '',
       tiktok: client.socials?.tiktok || '',
       linkedin: client.socials?.linkedin || '',
-      responsible_id: client.responsible_id || '',
       color: client.color,
       contract_start: client.contract_start || '',
       notes: client.notes,
@@ -305,37 +301,25 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">URL do Logo</label>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Cor Identificadora</label>
+            <div className="flex items-center gap-2">
               <input
-                type="url"
-                value={formData.logo}
-                onChange={(e) => setFormData({ ...formData, logo: e.target.value })}
-                placeholder="https://..."
-                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+                type="color"
+                value={formData.color}
+                onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                className="w-10 h-10 rounded-lg cursor-pointer"
               />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Cor Identificadora</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={formData.color}
-                  onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                  className="w-10 h-10 rounded-lg cursor-pointer"
-                />
-                <div className="flex gap-1">
-                  {defaultColors.slice(0, 5).map(color => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setFormData({ ...formData, color })}
-                      className="w-6 h-6 rounded-full border-2 border-transparent hover:border-foreground/20"
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
+              <div className="flex gap-1">
+                {defaultColors.slice(0, 5).map(color => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, color })}
+                    className="w-6 h-6 rounded-full border-2 border-transparent hover:border-foreground/20"
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
               </div>
             </div>
           </div>
@@ -380,29 +364,14 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Responsável</label>
-              <select
-                value={formData.responsible_id}
-                onChange={(e) => setFormData({ ...formData, responsible_id: e.target.value })}
-                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              >
-                <option value="">Selecione...</option>
-                {employees.filter(e => e.status === 'active').map(emp => (
-                  <option key={emp.id} value={emp.id}>{emp.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-foreground mb-1">Data de Início</label>
-              <input
-                type="date"
-                value={formData.contract_start}
-                onChange={(e) => setFormData({ ...formData, contract_start: e.target.value })}
-                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Data de Início</label>
+            <input
+              type="date"
+              value={formData.contract_start}
+              onChange={(e) => setFormData({ ...formData, contract_start: e.target.value })}
+              className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+            />
           </div>
 
           <div>

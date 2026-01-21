@@ -25,6 +25,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        
+        // Quando o usuário confirma o email ou faz login, redireciona para o sistema
+        if (event === 'SIGNED_IN' && session) {
+          navigate('/');
+        }
       }
     );
 
@@ -36,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [navigate]);
 
   const logout = async () => {
     await supabase.auth.signOut();

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Eye, X } from 'lucide-react';
-import { getFromStorage, Content, Client } from '@/lib/storage';
+import { useState } from 'react';
+import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { useContents, useClients, Content } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { cn } from '@/lib/utils';
@@ -14,7 +14,6 @@ import {
   addMonths, 
   subMonths,
   isSameMonth,
-  isSameDay,
   isToday
 } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,6 +24,7 @@ interface CalendarPageProps {
 
 const contentTypes: Record<string, string> = {
   post: 'Post Feed',
+  card: 'Card',
   reels: 'Reels',
   stories: 'Stories',
   carousel: 'Carrossel',
@@ -38,32 +38,29 @@ const socialNetworks: Record<string, string> = {
   linkedin: 'LinkedIn',
 };
 
+// Status que indicam que o conteúdo ainda não foi iniciado
+const NOT_STARTED_STATUSES = ['draft'];
+
 export function CalendarPage({ searchQuery }: CalendarPageProps) {
-  const [contents, setContents] = useState<Content[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
+  const { data: contents = [], isLoading: contentsLoading } = useContents();
+  const { data: clients = [] } = useClients();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [filterClient, setFilterClient] = useState('');
-  const [view, setView] = useState<'month' | 'week'>('month');
 
-  useEffect(() => {
-    setContents(getFromStorage<Content>('contents'));
-    setClients(getFromStorage<Client>('clients'));
-  }, []);
-
-  const getClientName = (id: string) => clients.find(c => c.id === id)?.name || 'Cliente';
-  const getClientColor = (id: string) => clients.find(c => c.id === id)?.color || '#3B82F6';
+  const getClientName = (id?: string) => clients.find(c => c.id === id)?.name || 'Cliente';
+  const getClientColor = (id?: string) => clients.find(c => c.id === id)?.color || '#3B82F6';
 
   const filteredContents = contents.filter(c => {
     const matchesSearch = c.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesClient = !filterClient || c.clientId === filterClient;
+    const matchesClient = !filterClient || c.client_id === filterClient;
     return matchesSearch && matchesClient;
   });
 
   const getContentsForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return filteredContents.filter(c => c.publishDate === dateStr);
+    return filteredContents.filter(c => c.publish_date === dateStr);
   };
 
   const renderCalendar = () => {
@@ -86,6 +83,34 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
   const days = renderCalendar();
   const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
+  // Função para determinar a cor de fundo do conteúdo
+  const getContentStyle = (content: Content) => {
+    const isNotStarted = NOT_STARTED_STATUSES.includes(content.status);
+    
+    if (isNotStarted) {
+      // Cinza claro para conteúdos não iniciados
+      return {
+        backgroundColor: '#E5E7EB',
+        borderLeft: '3px solid #9CA3AF',
+        color: '#6B7280'
+      };
+    }
+    
+    // Cor do cliente para outros status
+    return {
+      backgroundColor: `${getClientColor(content.client_id)}20`,
+      borderLeft: `3px solid ${getClientColor(content.client_id)}`,
+    };
+  };
+
+  if (contentsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -96,7 +121,7 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
               onClick={() => setCurrentDate(subMonths(currentDate, 1))}
               className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeftIcon className="w-5 h-5" />
             </button>
             <h2 className="text-lg font-semibold min-w-[180px] text-center">
               {format(currentDate, 'MMMM yyyy', { locale: ptBR })}
@@ -105,7 +130,7 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
               onClick={() => setCurrentDate(addMonths(currentDate, 1))}
               className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRightIcon className="w-5 h-5" />
             </button>
           </div>
           <button
@@ -129,6 +154,10 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-gray-300" />
+          <span className="text-xs text-muted-foreground">Não iniciado</span>
+        </div>
         {clients.filter(c => c.status === 'active').map(client => (
           <div key={client.id} className="flex items-center gap-2">
             <div 
@@ -180,18 +209,10 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
                     <div
                       key={content.id}
                       onClick={(e) => { e.stopPropagation(); setSelectedContent(content); }}
-                      className={cn(
-                        'px-2 py-1 rounded text-xs truncate cursor-pointer transition-opacity hover:opacity-80',
-                        content.status === 'approved' || content.status === 'published' 
-                          ? 'opacity-100' 
-                          : 'opacity-60'
-                      )}
-                      style={{ 
-                        backgroundColor: `${getClientColor(content.clientId)}20`,
-                        borderLeft: `3px solid ${getClientColor(content.clientId)}`,
-                      }}
+                      className="px-2 py-1 rounded text-xs truncate cursor-pointer transition-opacity hover:opacity-80"
+                      style={getContentStyle(content)}
                     >
-                      <span className="font-medium">{content.publishTime}</span>
+                      <span className="font-medium">{content.publish_time}</span>
                       <span className="hidden sm:inline"> - {content.title}</span>
                     </div>
                   ))}
@@ -224,7 +245,7 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
                 <div className="flex items-start gap-3">
                   <div
                     className="w-1 h-12 rounded-full"
-                    style={{ backgroundColor: getClientColor(content.clientId) }}
+                    style={{ backgroundColor: NOT_STARTED_STATUSES.includes(content.status) ? '#9CA3AF' : getClientColor(content.client_id) }}
                   />
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
@@ -232,7 +253,7 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
                       <StatusBadge status={content.status} type="content" />
                     </div>
                     <p className="text-sm text-muted-foreground">
-                      {getClientName(content.clientId)} • {content.publishTime} • {socialNetworks[content.socialNetwork]}
+                      {getClientName(content.client_id)} • {content.publish_time} • {socialNetworks[content.social_network]}
                     </p>
                   </div>
                 </div>
@@ -254,14 +275,14 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
             <div className="flex items-start gap-4">
               <div
                 className="w-16 h-16 rounded-xl flex items-center justify-center text-2xl"
-                style={{ backgroundColor: `${getClientColor(selectedContent.clientId)}20` }}
+                style={{ backgroundColor: NOT_STARTED_STATUSES.includes(selectedContent.status) ? '#E5E7EB' : `${getClientColor(selectedContent.client_id)}20` }}
               >
                 {selectedContent.type === 'reels' || selectedContent.type === 'tiktok' ? '🎬' : 
                  selectedContent.type === 'carousel' ? '🎨' : '📷'}
               </div>
               <div className="flex-1">
                 <h3 className="text-xl font-semibold mb-1">{selectedContent.title}</h3>
-                <p className="text-muted-foreground">{getClientName(selectedContent.clientId)}</p>
+                <p className="text-muted-foreground">{getClientName(selectedContent.client_id)}</p>
               </div>
               <StatusBadge status={selectedContent.status} type="content" />
             </div>
@@ -269,19 +290,24 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Data de Publicação</p>
-                <p className="font-medium">{format(new Date(selectedContent.publishDate), "dd 'de' MMMM, yyyy", { locale: ptBR })}</p>
+                <p className="font-medium">
+                  {selectedContent.publish_date 
+                    ? format(new Date(selectedContent.publish_date), "dd 'de' MMMM, yyyy", { locale: ptBR })
+                    : 'Não definida'
+                  }
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Horário</p>
-                <p className="font-medium">{selectedContent.publishTime}</p>
+                <p className="font-medium">{selectedContent.publish_time || 'Não definido'}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Rede Social</p>
-                <p className="font-medium">{socialNetworks[selectedContent.socialNetwork]}</p>
+                <p className="font-medium">{socialNetworks[selectedContent.social_network]}</p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Tipo</p>
-                <p className="font-medium">{contentTypes[selectedContent.type]}</p>
+                <p className="font-medium">{contentTypes[selectedContent.type] || selectedContent.type}</p>
               </div>
             </div>
 
@@ -292,7 +318,7 @@ export function CalendarPage({ searchQuery }: CalendarPageProps) {
               </div>
             )}
 
-            {selectedContent.hashtags.length > 0 && (
+            {selectedContent.hashtags && selectedContent.hashtags.length > 0 && (
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Hashtags</p>
                 <div className="flex flex-wrap gap-2">

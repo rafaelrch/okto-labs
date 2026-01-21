@@ -28,12 +28,10 @@ export interface Employee {
   name: string;
   role: string;
   email: string;
-  phone: string;
-  avatar: string;
-  hire_date?: string;
+  phone?: string;
   status: 'active' | 'inactive';
-  skills: string[];
   created_at: string;
+  updated_at: string;
 }
 
 export interface Task {
@@ -54,12 +52,15 @@ export interface Task {
 export interface Idea {
   id: string;
   user_id?: string;
+  client_id?: string;
   title: string;
   description: string;
   category: 'reels' | 'stories' | 'feed' | 'carousel' | 'tiktok' | 'other';
   tags: string[];
   status: 'new' | 'analyzing' | 'approved' | 'discarded';
   favorite: boolean;
+  reference_links?: string[];
+  reference_files?: string[];
   created_at: string;
 }
 
@@ -72,10 +73,15 @@ export interface Content {
   description: string;
   publish_date?: string;
   publish_time: string;
+  deadline?: string;
+  deadline_time?: string; // Horário do prazo
   social_network: 'instagram' | 'facebook' | 'tiktok' | 'linkedin';
   responsible_id?: string;
-  status: 'draft' | 'production' | 'pending' | 'approved' | 'published' | 'rejected';
-  files: string[];
+  status: 'draft' | 'production' | 'pending' | 'approved' | 'published' | 'rejected' | 'revision';
+  files: string[]; // Arquivos de referência
+  finalized_files?: string[]; // Arquivos de material finalizado
+  reference_links?: string[]; // Links de referência
+  finalized_links?: string[]; // Links de material finalizado
   copy: string;
   hashtags: string[];
   created_at: string;
@@ -105,6 +111,18 @@ export interface Mission {
   started_at?: string;
   completed_at?: string;
   created_at: string;
+}
+
+export interface Suggestion {
+  id: string;
+  user_id?: string;
+  title: string;
+  description: string;
+  category: 'bug' | 'improvement' | 'feature' | 'ui' | 'other';
+  status: 'pending' | 'under_review' | 'implemented' | 'rejected';
+  priority: 'low' | 'medium' | 'high';
+  created_at: string;
+  updated_at?: string;
 }
 
 // Hook genérico para dados do Supabase
@@ -216,4 +234,116 @@ export function useComments() {
 
 export function useMissions() {
   return useSupabaseTable<Mission>('missions');
+}
+
+export function useSuggestions() {
+  return useSupabaseTable<Suggestion>('suggestions');
+}
+
+export interface Approval {
+  id: string;
+  title: string;
+  client_id?: string;
+  status: 'content' | 'production' | 'pending' | 'approved' | 'revision' | 'rejected';
+  files: string[];
+  links: string[];
+  created_by?: string;
+  assigned_to?: string; // ID do funcionário responsável
+  content_id?: string; // ID do conteúdo relacionado
+  created_at: string;
+  updated_at: string;
+  position: number;
+  // Campos de conteúdo
+  content_type?: 'post' | 'card' | 'reels' | 'stories' | 'carousel' | 'tiktok';
+  publish_date?: string;
+  publish_time?: string;
+  deadline?: string;
+  briefing?: string;
+  content_files?: string[]; // Arquivos do conteúdo para aprovação
+}
+
+export interface ApprovalComment {
+  id: string;
+  approval_id?: string; // Opcional agora que podemos usar content_id
+  content_id?: string; // Para usar contents diretamente
+  user_id?: string;
+  message: string;
+  image?: string; // URL da imagem anexada
+  created_at: string;
+  updated_at: string;
+}
+
+export function useApprovals() {
+  return useSupabaseTable<Approval>('approvals');
+}
+
+export function useApprovalComments(approvalId?: string, contentId?: string) {
+  const [data, setData] = useState<ApprovalComment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!approvalId && !contentId) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
+
+    const fetchComments = async () => {
+      setLoading(true);
+      let query = supabase
+        .from('approval_comments')
+        .select('*');
+      
+      if (contentId) {
+        query = query.eq('content_id', contentId);
+      } else if (approvalId) {
+        query = query.eq('approval_id', approvalId);
+      }
+      
+      const { data: comments, error } = await query.order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching approval comments:', error);
+        setData([]);
+      } else {
+        setData(comments || []);
+      }
+      setLoading(false);
+    };
+
+    fetchComments();
+
+    // Subscribe to changes
+    const filterId = contentId || approvalId;
+    if (filterId) {
+      const channel = supabase
+        .channel(`approval_comments:${filterId}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'approval_comments',
+          filter: contentId ? `content_id=eq.${contentId}` : `approval_id=eq.${approvalId}`,
+        }, () => {
+          fetchComments();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [approvalId, contentId]);
+
+  const create = async (comment: Omit<ApprovalComment, 'id' | 'created_at' | 'updated_at'>) => {
+    const { data: newComment, error } = await supabase
+      .from('approval_comments')
+      .insert(comment)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return newComment;
+  };
+
+  return { data, loading, create };
 }

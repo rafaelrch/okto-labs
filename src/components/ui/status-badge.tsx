@@ -11,6 +11,7 @@ const contentStatusStyles: Record<string, string> = {
   pending: 'bg-status-pending/10 text-status-pending border-status-pending/20',
   approved: 'bg-status-approved/10 text-status-approved border-status-approved/20',
   published: 'bg-status-published/10 text-status-published border-status-published/20',
+  revision: 'bg-status-production/10 text-status-production border-status-production/20',
   rejected: 'bg-status-rejected/10 text-status-rejected border-status-rejected/20',
 };
 
@@ -35,11 +36,12 @@ const priorityStyles: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
-  draft: 'Rascunho',
-  production: 'Em Produção',
-  pending: 'Aguardando',
+  draft: 'Não iniciado',
+  production: 'Em produção',
+  pending: 'Em aprovação',
   approved: 'Aprovado',
   published: 'Publicado',
+  revision: 'Refação',
   rejected: 'Reprovado',
   in_progress: 'Em Andamento',
   completed: 'Concluída',

@@ -9,6 +9,7 @@ import { CalendarPage } from '@/pages/Calendar';
 import { TasksPage } from '@/pages/Tasks';
 import { EmployeesPage } from '@/pages/Employees';
 import { MissionsPage } from '@/pages/Missions';
+import { SuggestionsPage } from '@/pages/Suggestions';
 import { initializeMockData } from '@/lib/storage';
 
 const Index = () => {
@@ -39,6 +40,8 @@ const Index = () => {
         return <EmployeesPage searchQuery={searchQuery} />;
       case 'missions':
         return <MissionsPage searchQuery={searchQuery} />;
+      case 'suggestions':
+        return <SuggestionsPage searchQuery={searchQuery} />;
       default:
         return <Dashboard onNavigate={setCurrentPage} />;
     }

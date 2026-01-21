@@ -419,16 +419,16 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
         </div>
 
 
-        {/* Mission Lists */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Mission Lists - Kanban Board */}
+        <div className="flex gap-4 overflow-x-auto pb-4">
           {/* Available */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="flex-shrink-0 w-72 space-y-4">
+            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
               <Target className="w-5 h-5 text-primary" />
               <h2 className="font-semibold text-foreground">Disponíveis</h2>
               <Badge variant="outline">{availableMissions.length}</Badge>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {availableMissions.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="p-6 text-center text-muted-foreground">
@@ -445,13 +445,13 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* In Progress */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="flex-shrink-0 w-72 space-y-4">
+            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
               <Clock className="w-5 h-5 text-warning" />
               <h2 className="font-semibold text-foreground">Em Andamento</h2>
               <Badge variant="outline">{inProgressMissions.length}</Badge>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {inProgressMissions.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="p-6 text-center text-muted-foreground">
@@ -468,13 +468,13 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* Completed */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="flex-shrink-0 w-72 space-y-4">
+            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
               <CheckCircle2 className="w-5 h-5 text-success" />
               <h2 className="font-semibold text-foreground">Concluídas</h2>
               <Badge variant="outline">{completedMissions.length}</Badge>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {completedMissions.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="p-6 text-center text-muted-foreground">
@@ -491,13 +491,13 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* Expired */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
+          <div className="flex-shrink-0 w-72 space-y-4">
+            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
               <AlertTriangle className="w-5 h-5 text-destructive" />
               <h2 className="font-semibold text-foreground">Expiradas</h2>
               <Badge variant="outline">{expiredMissions.length}</Badge>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {expiredMissions.length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="p-6 text-center text-muted-foreground">

@@ -5,9 +5,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Mail, Lock, User, Phone, Briefcase } from 'lucide-react';
+
+const ROLES = [
+  'Social Media',
+  'Editor de Vídeo',
+  'Designer',
+  'Coordenador(a)',
+  'Logística',
+  'RH',
+  'Filmmaker',
+  'Diretoria',
+];
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -286,17 +298,21 @@ export default function Auth() {
 
                     <div className="space-y-2">
                       <Label htmlFor="signup-role">Cargo</Label>
-                      <div className="relative">
-                        <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          id="signup-role"
-                          type="text"
-                          placeholder="Ex: Designer"
-                          value={signupRole}
-                          onChange={(e) => setSignupRole(e.target.value)}
-                          className="pl-10"
-                        />
-                      </div>
+                      <Select value={signupRole} onValueChange={setSignupRole}>
+                        <SelectTrigger className="w-full">
+                          <div className="flex items-center gap-2">
+                            <Briefcase className="h-4 w-4 text-muted-foreground" />
+                            <SelectValue placeholder="Selecione" />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ROLES.map((role) => (
+                            <SelectItem key={role} value={role}>
+                              {role}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 

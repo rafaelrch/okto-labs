@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @layer base {
   :root {
@@ -121,8 +121,12 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    @apply bg-background text-foreground font-sans antialiased tracking-tight;
+    font-family: 'DM Sans', system-ui, sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6, p, span, div, label, button, input, textarea, select, a {
+    @apply tracking-tight;
   }
 }
 
@@ -132,7 +136,7 @@
   }
 
   .sidebar-gradient {
-    background: var(--gradient-sidebar);
+    background: hsl(258, 41%, 8%);
   }
 
   .text-gradient {

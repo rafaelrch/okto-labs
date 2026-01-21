@@ -40,7 +40,10 @@ export interface Content {
   socialNetwork: 'instagram' | 'facebook' | 'tiktok' | 'linkedin';
   responsibleId: string;
   status: 'draft' | 'production' | 'pending' | 'approved' | 'published' | 'rejected';
-  files: string[];
+  files: string[]; // Arquivos de referência
+  finalizedFiles?: string[]; // Arquivos de material finalizado
+  referenceLinks?: string[]; // Links de referência
+  finalizedLinks?: string[]; // Links de material finalizado
   copy: string;
   hashtags: string[];
   createdAt: string;
