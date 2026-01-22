@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,13 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Plus, MessageSquare, Bug, Sparkles, Palette, Layers, HelpCircle, CheckCircle2, Clock, XCircle, Filter } from 'lucide-react';
+import { Plus, MessageSquare, Bug, Sparkles, Palette, Layers, HelpCircle, CheckCircle2, Clock, XCircle, Filter, Upload, X, Image as ImageIcon, Video } from 'lucide-react';
 import { useSuggestions, useEmployees, type Suggestion } from '@/hooks/useSupabaseData';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { uploadFile } from '@/lib/supabase-storage';
 
 interface SuggestionsPageProps {
   searchQuery: string;
@@ -45,6 +46,7 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
   const { data: employees } = useEmployees();
   const { user } = useAuth();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [formData, setFormData] = useState({
@@ -52,7 +54,11 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
     description: '',
     category: 'improvement' as Suggestion['category'],
     priority: 'medium' as Suggestion['priority'],
+    files: [] as string[],
   });
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [filePreviews, setFilePreviews] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
     setFormData({
@@ -60,7 +66,77 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
       description: '',
       category: 'improvement',
       priority: 'medium',
+      files: [],
     });
+    setFilePreviews([]);
+  };
+
+  // Função para fazer upload de arquivos
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
+
+    // Validar tipos de arquivo (imagens e vídeos)
+    const validFiles = selectedFiles.filter(file => 
+      file.type.startsWith('image/') || file.type.startsWith('video/')
+    );
+
+    if (validFiles.length !== selectedFiles.length) {
+      toast.error('Apenas imagens e vídeos são permitidos');
+    }
+
+    if (validFiles.length === 0) return;
+
+    // Criar previews temporários
+    const tempPreviews = validFiles.map(file => URL.createObjectURL(file));
+    setFilePreviews(prev => [...prev, ...tempPreviews]);
+
+    // Fazer upload dos arquivos
+    setUploadingFiles(true);
+    try {
+      const uploadPromises = validFiles.map(async (file) => {
+        const url = await uploadFile(file, 'suggestions');
+        return url;
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
+      const successfulUrls = uploadedUrls.filter((url): url is string => url !== null);
+
+      if (successfulUrls.length > 0) {
+        setFormData(prev => ({
+          ...prev,
+          files: [...prev.files, ...successfulUrls],
+        }));
+        toast.success(`${successfulUrls.length} arquivo(s) enviado(s) com sucesso!`);
+      }
+
+      if (successfulUrls.length < validFiles.length) {
+        toast.error(`${validFiles.length - successfulUrls.length} arquivo(s) falharam no upload`);
+      }
+    } catch (error) {
+      console.error('Erro ao fazer upload:', error);
+      toast.error('Erro ao fazer upload dos arquivos');
+    } finally {
+      setUploadingFiles(false);
+    }
+
+    // Limpar o input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Remover arquivo
+  const removeFile = (index: number) => {
+    // Revogar URL temporária se for blob
+    if (filePreviews[index]?.startsWith('blob:')) {
+      URL.revokeObjectURL(filePreviews[index]);
+    }
+    setFilePreviews(prev => prev.filter((_, i) => i !== index));
+    setFormData(prev => ({
+      ...prev,
+      files: prev.files.filter((_, i) => i !== index),
+    }));
   };
 
   const handleSubmit = async () => {
@@ -85,6 +161,7 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
         category: formData.category,
         priority: formData.priority,
         status: 'pending',
+        files: formData.files.length > 0 ? formData.files : [],
       });
       toast.success('Sugestão enviada com sucesso! Obrigado pelo seu feedback.');
       setIsDialogOpen(false);
@@ -113,10 +190,13 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
     const isMySuggestion = suggestion.user_id === user?.id;
 
     return (
-      <Card className={cn(
-        'hover:shadow-md transition-all duration-200',
-        isMySuggestion && 'border-primary/30 border-2'
-      )}>
+      <Card 
+        className={cn(
+          'hover:shadow-md transition-all duration-200 cursor-pointer',
+          isMySuggestion && 'border-primary/30 border-2'
+        )}
+        onClick={() => setSelectedSuggestion(suggestion)}
+      >
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
@@ -235,13 +315,170 @@ export function SuggestionsPage({ searchQuery }: SuggestionsPageProps) {
                   </Select>
                 </div>
               </div>
-              <Button onClick={handleSubmit} className="w-full btn-primary-gradient">
+
+              {/* Upload de Arquivos */}
+              <div className="space-y-2">
+                <Label>Anexos (opcional)</Label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,video/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingFiles}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-muted hover:bg-muted/80 rounded-lg border-2 border-dashed border-border transition-colors disabled:opacity-50"
+                >
+                  {uploadingFiles ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent" />
+                      <span className="text-sm text-muted-foreground">Enviando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Clique para adicionar imagens ou vídeos</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Preview dos arquivos */}
+                {(filePreviews.length > 0 || formData.files.length > 0) && (
+                  <div className="grid grid-cols-4 gap-2 mt-2">
+                    {(filePreviews.length > 0 ? filePreviews : formData.files).map((preview, index) => {
+                      const isVideo = preview.includes('video') || /\.(mp4|mov|avi|webm|mkv)$/i.test(preview);
+                      return (
+                        <div key={index} className="relative group aspect-square">
+                          {isVideo ? (
+                            <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center">
+                              <Video className="w-6 h-6 text-muted-foreground" />
+                            </div>
+                          ) : (
+                            <img
+                              src={preview}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeFile(index)}
+                            className="absolute -top-1 -right-1 p-1 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <Button onClick={handleSubmit} className="w-full btn-primary-gradient" disabled={uploadingFiles}>
                 Enviar Sugestão
               </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Detail Modal */}
+      <Dialog open={!!selectedSuggestion} onOpenChange={(open) => !open && setSelectedSuggestion(null)}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+          {selectedSuggestion && (
+            <>
+              <DialogHeader className="flex-shrink-0">
+                <DialogTitle className="text-xl pr-6">{selectedSuggestion.title}</DialogTitle>
+              </DialogHeader>
+              <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+                {/* Status e Badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={statusConfig[selectedSuggestion.status].color}>
+                    {statusConfig[selectedSuggestion.status].label}
+                  </Badge>
+                  <Badge className={categoryConfig[selectedSuggestion.category].color}>
+                    {categoryConfig[selectedSuggestion.category].label}
+                  </Badge>
+                  <Badge className={priorityConfig[selectedSuggestion.priority].color}>
+                    {priorityConfig[selectedSuggestion.priority].label}
+                  </Badge>
+                </div>
+
+                {/* Descrição */}
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Descrição</Label>
+                  <div className="text-sm text-foreground whitespace-pre-wrap break-words bg-muted/50 rounded-lg p-4">
+                    {selectedSuggestion.description}
+                  </div>
+                </div>
+
+                {/* Anexos */}
+                {selectedSuggestion.files && selectedSuggestion.files.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Anexos</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {selectedSuggestion.files.map((file, index) => {
+                        const isVideo = /\.(mp4|mov|avi|webm|mkv)$/i.test(file);
+                        return (
+                          <a
+                            key={index}
+                            href={file}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="relative aspect-square group"
+                          >
+                            {isVideo ? (
+                              <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center">
+                                <Video className="w-8 h-8 text-muted-foreground" />
+                              </div>
+                            ) : (
+                              <img
+                                src={file}
+                                alt={`Anexo ${index + 1}`}
+                                className="w-full h-full object-cover rounded-lg hover:opacity-90 transition-opacity"
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                              <span className="text-white text-xs">Abrir</span>
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Informações adicionais */}
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground text-xs">Enviado por</Label>
+                    <p className="text-sm font-medium">{getAuthorName(selectedSuggestion.user_id)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground text-xs">Data de envio</Label>
+                    <p className="text-sm font-medium">
+                      {format(new Date(selectedSuggestion.created_at), "dd 'de' MMMM 'de' yyyy 'às' HH:mm", { locale: ptBR })}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Ações para o autor */}
+                {selectedSuggestion.user_id === user?.id && selectedSuggestion.status === 'pending' && (
+                  <div className="pt-4 border-t">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Sua sugestão está pendente de análise.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">

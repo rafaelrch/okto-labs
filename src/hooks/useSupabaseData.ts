@@ -8,6 +8,7 @@ export interface Client {
   name: string;
   segment: string;
   logo: string;
+  logo_url?: string;
   socials: {
     instagram?: string;
     facebook?: string;
@@ -18,6 +19,9 @@ export interface Client {
   color: string;
   status: 'active' | 'inactive';
   contract_start?: string;
+  contract_value?: number;
+  contract_months?: number;
+  services_sold?: string[];
   notes: string;
   created_at: string;
 }
@@ -121,6 +125,7 @@ export interface Suggestion {
   category: 'bug' | 'improvement' | 'feature' | 'ui' | 'other';
   status: 'pending' | 'under_review' | 'implemented' | 'rejected';
   priority: 'low' | 'medium' | 'high';
+  files?: string[]; // URLs de arquivos anexados (imagens/vídeos)
   created_at: string;
   updated_at?: string;
 }
@@ -169,6 +174,7 @@ function useSupabaseTable<T extends { id: string }>(tableName: string) {
 
   const update = useCallback(async (id: string, updates: Partial<T>) => {
     try {
+      console.log(`[Supabase] Atualizando ${tableName} id: ${id}`, updates);
       const { data: result, error: updateError } = await supabase
         .from(tableName)
         .update(updates)
@@ -176,7 +182,12 @@ function useSupabaseTable<T extends { id: string }>(tableName: string) {
         .select()
         .single();
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error(`[Supabase] Erro ao atualizar ${tableName}:`, updateError);
+        throw updateError;
+      }
+      
+      console.log(`[Supabase] ${tableName} atualizado com sucesso:`, result);
       setData(prev => prev.map(item => item.id === id ? result as T : item));
       return result as T;
     } catch (err) {
@@ -187,12 +198,21 @@ function useSupabaseTable<T extends { id: string }>(tableName: string) {
 
   const remove = useCallback(async (id: string) => {
     try {
-      const { error: deleteError } = await supabase
+      console.log(`[Supabase] Deletando ${tableName} com id:`, id);
+      
+      const { error: deleteError, status, statusText } = await supabase
         .from(tableName)
         .delete()
         .eq('id', id);
 
-      if (deleteError) throw deleteError;
+      console.log(`[Supabase] Delete response - status: ${status}, statusText: ${statusText}`);
+      
+      if (deleteError) {
+        console.error(`[Supabase] Delete error:`, deleteError);
+        throw deleteError;
+      }
+      
+      console.log(`[Supabase] ${tableName} deletado com sucesso`);
       setData(prev => prev.filter(item => item.id !== id));
     } catch (err) {
       console.error(`Error deleting ${tableName}:`, err);
@@ -342,6 +362,12 @@ export function useApprovalComments(approvalId?: string, contentId?: string) {
       .single();
 
     if (error) throw error;
+    
+    // Atualizar estado local imediatamente para feedback em tempo real
+    if (newComment) {
+      setData(prev => [...prev, newComment]);
+    }
+    
     return newComment;
   };
 

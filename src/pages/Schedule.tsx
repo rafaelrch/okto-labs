@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   PlusIcon, 
   PencilIcon, 
@@ -11,7 +11,6 @@ import {
   ArrowUpTrayIcon, 
   XMarkIcon, 
   ArrowDownTrayIcon, 
-  ArrowsPointingOutIcon, 
   PhotoIcon, 
   VideoCameraIcon, 
   DocumentIcon, 
@@ -24,7 +23,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Modal } from '@/components/ui/modal';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { TabsAnimated } from '@/components/ui/tabs-animated';
+import { Tabs as TabsAnimated } from '@/components/ui/tabs-animated';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, startOfWeek, endOfWeek, addWeeks, isWithinInterval, isSameMonth, parseISO, addDays, isToday } from 'date-fns';
@@ -64,7 +63,7 @@ interface SchedulePageProps {
 type WeekFilter = 'all' | 'week1' | 'week2' | 'week3' | 'week4' | 'week5' | 'custom';
 
 export function SchedulePage({ searchQuery }: SchedulePageProps) {
-  const { data: contents, loading, create, update, remove } = useContents();
+  const { data: contents, loading, create, update, remove, refetch } = useContents();
   const { data: clients } = useClients();
   const { data: employees } = useEmployees();
   const { user } = useAuth();
@@ -72,10 +71,10 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [viewingContent, setViewingContent] = useState<Content | null>(null);
-  const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const briefingTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [editingContent, setEditingContent] = useState<Content | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [weekFilter, setWeekFilter] = useState<WeekFilter>('all');
@@ -83,6 +82,8 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   const [viewMode, setViewMode] = useState<'board' | 'calendar'>('board');
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
+  const [carouselIndex, setCarouselIndex] = useState(0);
+  const [fullscreenFile, setFullscreenFile] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [calendarFilter, setCalendarFilter] = useState<string>('all');
   const [formData, setFormData] = useState({
@@ -482,8 +483,15 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   };
 
   const handleDelete = async (id: string) => {
-    await remove(id);
-    toast.success('Conteúdo excluído!');
+    try {
+      await remove(id);
+      // Forçar atualização dos dados para garantir que a UI seja atualizada
+      await refetch();
+      toast.success('Conteúdo excluído!');
+    } catch (error) {
+      console.error('Erro ao excluir conteúdo:', error);
+      toast.error('Erro ao excluir conteúdo');
+    }
   };
 
   const handlePrevMonth = () => {
@@ -555,11 +563,41 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
   };
 
 
-  const getClientName = (id?: string | null) => id ? clients.find(c => c.id === id)?.name || 'Cliente não encontrado' : 'Sem cliente';
+  const getClientName = (id?: string | null) => {
+    if (!id) return 'Sem cliente';
+    const client = clients.find(c => c.id === id);
+    return client?.name || 'Cliente não encontrado';
+  };
   const getClientColor = (id?: string | null) => id ? clients.find(c => c.id === id)?.color || '#3B82F6' : '#3B82F6';
-  const getEmployeeName = (id?: string | null) => id ? employees.find(e => e.id === id)?.name || 'Não atribuído' : 'Não atribuído';
+  const getEmployeeName = (id?: string | null, userId?: string | null) => {
+    // Se houver responsible_id, usar ele
+    if (id) {
+      const employee = employees.find(e => e.id === id);
+      if (employee) return employee.name;
+    }
+    // Se não houver responsible_id, buscar pelo user_id (responsável por produzir)
+    if (userId) {
+      const employee = employees.find(e => e.user_id === userId);
+      if (employee) return employee.name;
+    }
+    return 'Não atribuído';
+  };
+
+  // Auto-resize do textarea do Briefing
+  useEffect(() => {
+    if (briefingTextareaRef.current && viewingContent?.description) {
+      briefingTextareaRef.current.style.height = 'auto';
+      briefingTextareaRef.current.style.height = `${briefingTextareaRef.current.scrollHeight}px`;
+    }
+  }, [viewingContent?.description]);
 
   const monthName = format(currentMonth, "MMMM 'de' yyyy", { locale: ptBR });
+  
+  // Função helper para capitalizar a primeira letra do mês
+  const capitalizeMonth = (date: Date, formatStr: string) => {
+    const formatted = format(date, formatStr, { locale: ptBR });
+    return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+  };
 
   // Funções para visualização de calendário
   const NOT_STARTED_STATUSES = ['draft'];
@@ -625,7 +663,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                   {dayContents.slice(0, 3).map(content => (
                     <div
                       key={content.id}
-                      onClick={(e) => { e.stopPropagation(); setSelectedContent(content); }}
+                      onClick={(e) => { e.stopPropagation(); setCarouselIndex(0); setSelectedContent(content); }}
                       className="px-2 py-1 rounded text-xs truncate cursor-pointer transition-opacity hover:opacity-80"
                       style={getContentStyle(content)}
                     >
@@ -767,7 +805,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                         <span>🕐 {content.publish_time}</span>
                         <span>📱 {socialNetworks.find(s => s.value === content.social_network)?.label}</span>
-                        <span>👤 {getEmployeeName(content.responsible_id)}</span>
+                        <span>👤 {getEmployeeName(content.responsible_id, content.user_id)}</span>
                       </div>
 
                       {content.hashtags.length > 0 && (
@@ -843,29 +881,30 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
         <>
           {/* Card Principal com Tabs de Clientes */}
           <div className="bg-card rounded-xl border border-border p-6">
-            {/* Header com navegação de mês, botão novo conteúdo e dropdown de semanas - Primeiro item do card */}
+            {/* Header com filtro de mês e botão novo conteúdo */}
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6 pb-6 border-b border-border">
-              {/* Navegação do mês */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handlePrevMonth}
-                  className="p-2 hover:bg-muted rounded-lg transition-colors"
-                >
-                  <ChevronLeftIcon className="w-5 h-5" />
-                </button>
-                <h2 className="text-xl font-bold text-card-foreground capitalize min-w-[200px] text-center">
-                  {monthName}
-                </h2>
-                <button
-                  onClick={handleNextMonth}
-                  className="p-2 hover:bg-muted rounded-lg transition-colors"
-                >
-                  <ChevronRightIcon className="w-5 h-5" />
-                </button>
-              </div>
+              {/* Filtro de Mês e Semanas */}
+              <div className="flex items-center gap-4">
+                {/* Navegação do Mês */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handlePrevMonth}
+                    className="p-1 hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="text-lg font-medium">&lt;</span>
+                  </button>
+                  <span className="text-base font-medium text-foreground min-w-[140px] text-center">
+                    {capitalizeMonth(currentMonth, "MMMM yyyy")}
+                  </span>
+                  <button
+                    onClick={handleNextMonth}
+                    className="p-1 hover:bg-muted rounded transition-colors text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="text-lg font-medium">&gt;</span>
+                  </button>
+                </div>
 
-              {/* Botão Novo Conteúdo e Dropdown de Semanas */}
-              <div className="flex items-center gap-3">
+                {/* Dropdown de Semanas */}
                 <Select
                   value={weekFilter === 'custom' ? 'all' : weekFilter}
                   onValueChange={(value) => {
@@ -890,18 +929,20 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                     ))}
                   </SelectContent>
                 </Select>
-
-                <button
-                  onClick={() => { resetForm(); setIsModalOpen(true); }}
-                  className="flex items-center gap-2 px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
-                >
-                  <PlusIcon className="w-4 h-4" /> Novo Conteúdo
-                </button>
               </div>
+
+              <button
+                onClick={() => { resetForm(); setIsModalOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 btn-primary-gradient rounded-lg text-sm font-medium"
+              >
+                <PlusIcon className="w-4 h-4" /> Novo Conteúdo
+              </button>
             </div>
 
             {/* Tabs de Clientes */}
             <TabsAnimated
+              key={`tabs-${format(currentMonth, 'yyyy-MM')}-${weekFilter}`}
+              contentKey={`${format(currentMonth, 'yyyy-MM')}-${weekFilter}`}
               tabs={[
                 {
                   title: "Todos",
@@ -914,7 +955,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                   content: renderClientContent(client.id),
                 })),
               ]}
-              containerClassName="mb-8"
+              containerClassName="mb-2"
               activeTabClassName="bg-primary/20"
               tabClassName="text-sm font-medium"
               contentClassName="min-h-[400px] relative"
@@ -936,7 +977,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                     <ChevronLeftIcon className="w-5 h-5" />
                   </button>
                   <h2 className="text-lg font-semibold min-w-[180px] text-center">
-                    {format(calendarDate, 'MMMM yyyy', { locale: ptBR })}
+                    {capitalizeMonth(calendarDate, 'MMMM yyyy')}
                   </h2>
                   <button
                     onClick={() => setCalendarDate(addMonths(calendarDate, 1))}
@@ -965,6 +1006,10 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
             {/* Tabs de Filtro */}
             <div className="bg-card rounded-xl border border-border p-6">
               <TabsAnimated
+                key={`calendar-tabs-${format(calendarDate, 'yyyy-MM')}-${calendarFilter}`}
+                contentKey={`${format(calendarDate, 'yyyy-MM')}-${calendarFilter}`}
+                defaultValue={calendarFilter}
+                onValueChange={(value) => setCalendarFilter(value)}
                 tabs={[
                   {
                     title: "Todos",
@@ -1316,6 +1361,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
         onClose={() => { setIsViewModalOpen(false); setViewingContent(null); }}
         title={viewingContent?.title || ''}
         size="lg"
+        autoHeight={true}
       >
         {viewingContent && (
           <div className="space-y-6">
@@ -1360,7 +1406,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
               )}
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Responsável</p>
-                <p className="font-medium">{getEmployeeName(viewingContent.responsible_id)}</p>
+                <p className="font-medium">{getEmployeeName(viewingContent.responsible_id, viewingContent.user_id)}</p>
               </div>
             </div>
 
@@ -1368,7 +1414,13 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
             {viewingContent.description && (
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Briefing</p>
-                <p className="font-medium whitespace-pre-wrap">{viewingContent.description}</p>
+                <textarea
+                  ref={briefingTextareaRef}
+                  value={viewingContent.description}
+                  readOnly
+                  className="w-full px-3 py-2 bg-transparent border-0 outline-none resize-none text-sm font-medium overflow-hidden"
+                  style={{ minHeight: '60px' }}
+                />
               </div>
             )}
 
@@ -1464,8 +1516,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                                     <img
                                       src={fileUrl}
                                       alt={file}
-                                      className="w-full h-full object-cover cursor-pointer"
-                                      onClick={() => setFullscreenImage(fileUrl)}
+                                      className="w-full h-full object-cover"
                                     />
                                   ) : isVid ? (
                                     <video
@@ -1480,17 +1531,11 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
                                   )}
                                 </div>
                                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  {isImg && (
-                                    <button
-                                      onClick={() => setFullscreenImage(fileUrl)}
-                                      className="p-1.5 bg-background/80 backdrop-blur-sm rounded-lg hover:bg-background transition-colors"
-                                      title="Ampliar"
-                                    >
-                                      <ArrowsPointingOutIcon className="w-4 h-4" />
-                                    </button>
-                                  )}
                                   <button
-                                    onClick={() => downloadFile(fileUrl, file)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      downloadFile(fileUrl, file);
+                                    }}
                                     className="p-1.5 bg-background/80 backdrop-blur-sm rounded-lg hover:bg-background transition-colors"
                                     title="Download"
                                   >
@@ -1514,26 +1559,6 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
         )}
       </Modal>
 
-      {/* Modal de Tela Cheia para Imagens */}
-      {fullscreenImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setFullscreenImage(null)}
-        >
-          <button
-            onClick={() => setFullscreenImage(null)}
-            className="absolute top-4 right-4 p-2 bg-background/80 backdrop-blur-sm rounded-lg hover:bg-background transition-colors"
-          >
-            <XMarkIcon className="w-6 h-6" />
-          </button>
-          <img
-            src={fullscreenImage}
-            alt="Preview"
-            className="max-w-full max-h-full object-contain"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
 
       {/* Modais do Calendário */}
       {/* Day Detail Modal */}
@@ -1547,7 +1572,7 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
             {getContentsForDate(selectedDay, 'all').map(content => (
               <div
                 key={content.id}
-                onClick={() => { setSelectedDay(null); setSelectedContent(content); }}
+                onClick={() => { setSelectedDay(null); setCarouselIndex(0); setSelectedContent(content); }}
                 className="p-4 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition-colors"
               >
                 <div className="flex items-start gap-3">
@@ -1572,75 +1597,279 @@ export function SchedulePage({ searchQuery }: SchedulePageProps) {
       </Modal>
 
       {/* Content Detail Modal */}
-      <Modal
-        isOpen={!!selectedContent}
-        onClose={() => setSelectedContent(null)}
-        title="Detalhes do Conteúdo"
-        size="lg"
-      >
-        {selectedContent && (
-          <div className="space-y-4">
-            <div className="flex items-start gap-4">
-              <div
-                className="w-16 h-16 rounded-xl flex items-center justify-center text-2xl"
-                style={{ backgroundColor: NOT_STARTED_STATUSES.includes(selectedContent.status) ? '#E5E7EB' : `${getClientColor(selectedContent.client_id)}20` }}
-              >
-                {selectedContent.type === 'reels' || selectedContent.type === 'tiktok' ? '🎬' : 
-                 selectedContent.type === 'carousel' ? '🎨' : '📷'}
+      {selectedContent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2">
+          <div
+            className="absolute inset-0 bg-foreground/20 backdrop-blur-sm"
+            onClick={() => setSelectedContent(null)}
+          />
+          <div className="relative w-full max-w-5xl bg-card rounded-2xl shadow-xl border border-border animate-scale-in overflow-hidden">
+            {/* Content - 2 Columns */}
+            <div className="flex p-2 gap-2 max-h-[80vh]">
+              {/* Coluna Esquerda - Material Finalizado (Carrossel) */}
+              <div className="flex-1 bg-muted/30 rounded-xl flex flex-col min-h-[400px] overflow-hidden relative">
+                {selectedContent.finalized_files && selectedContent.finalized_files.length > 0 ? (
+                  <>
+                    {/* Área do arquivo */}
+                    <div className="flex-1 flex items-center justify-center p-4 relative">
+                      {(() => {
+                        const file = selectedContent.finalized_files[carouselIndex];
+                        const isImg = /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(file);
+                        const isVid = /\.(mp4|mov|avi|webm|mkv)$/i.test(file);
+                        
+                        if (isImg) {
+                          return (
+                            <img
+                              src={file}
+                              alt="Material finalizado"
+                              className="max-w-full max-h-[65vh] object-contain rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => setFullscreenFile(file)}
+                            />
+                          );
+                        } else if (isVid) {
+                          return (
+                            <video
+                              src={file}
+                              controls
+                              className="max-w-full max-h-[65vh] object-contain rounded-lg"
+                            />
+                          );
+                        } else {
+                          return (
+                            <div className="flex flex-col items-center gap-3 p-6 bg-white rounded-xl">
+                              <DocumentIcon className="w-16 h-16 text-muted-foreground" />
+                              <span className="text-sm text-foreground truncate max-w-[200px]">
+                                {file.split('/').pop()?.split('?')[0]}
+                              </span>
+                            </div>
+                          );
+                        }
+                      })()}
+                      
+                      {/* Setas de navegação */}
+                      {selectedContent.finalized_files.length > 1 && (
+                        <>
+                          <button
+                            onClick={() => setCarouselIndex(prev => prev === 0 ? selectedContent.finalized_files!.length - 1 : prev - 1)}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-colors"
+                          >
+                            <ChevronLeftIcon className="w-5 h-5 text-foreground" />
+                          </button>
+                          <button
+                            onClick={() => setCarouselIndex(prev => prev === selectedContent.finalized_files!.length - 1 ? 0 : prev + 1)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-white/90 rounded-full shadow-lg hover:bg-white transition-colors"
+                          >
+                            <ChevronRightIcon className="w-5 h-5 text-foreground" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* Barra inferior - Indicadores, Fullscreen e Download */}
+                    <div className="flex items-center justify-between px-4 py-3 bg-white/50">
+                      {/* Indicadores de página */}
+                      <div className="flex items-center gap-2">
+                        {selectedContent.finalized_files.length > 1 && selectedContent.finalized_files.map((_, index) => (
+                          <button
+                            key={index}
+                            onClick={() => setCarouselIndex(index)}
+                            className={`w-2 h-2 rounded-full transition-colors ${
+                              index === carouselIndex ? 'bg-primary' : 'bg-muted-foreground/30'
+                            }`}
+                          />
+                        ))}
+                        {selectedContent.finalized_files.length > 1 && (
+                          <span className="text-xs text-muted-foreground ml-2">
+                            {carouselIndex + 1} / {selectedContent.finalized_files.length}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Botões de ação */}
+                      <div className="flex items-center gap-2">
+                        {/* Fullscreen */}
+                        <button
+                          onClick={() => setFullscreenFile(selectedContent.finalized_files![carouselIndex])}
+                          className="p-2 rounded-lg hover:bg-muted transition-colors"
+                          title="Ver em tela cheia"
+                        >
+                          <ArrowTopRightOnSquareIcon className="w-5 h-5 text-muted-foreground" />
+                        </button>
+                        {/* Download */}
+                        <a
+                          href={selectedContent.finalized_files[carouselIndex]}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 rounded-lg hover:bg-muted transition-colors"
+                          title="Baixar arquivo"
+                        >
+                          <ArrowDownTrayIcon className="w-5 h-5 text-muted-foreground" />
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center">
+                    <div className="text-center p-8">
+                      <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
+                        <PhotoIcon className="w-8 h-8 text-muted-foreground" />
+                      </div>
+                      <p className="text-muted-foreground">Este conteúdo ainda não foi aprovado</p>
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex-1">
-                <h3 className="text-xl font-semibold mb-1">{selectedContent.title}</h3>
-                <p className="text-muted-foreground">{getClientName(selectedContent.client_id)}</p>
-              </div>
-              <StatusBadge status={selectedContent.status} type="content" />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Data de Publicação</p>
-                <p className="font-medium">
-                  {selectedContent.publish_date 
-                    ? format(new Date(selectedContent.publish_date), "dd 'de' MMMM, yyyy", { locale: ptBR })
-                    : 'Não definida'
-                  }
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Horário</p>
-                <p className="font-medium">{selectedContent.publish_time || 'Não definido'}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Rede Social</p>
-                <p className="font-medium">{socialNetworksMap[selectedContent.social_network]}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tipo</p>
-                <p className="font-medium">{contentTypesMap[selectedContent.type] || selectedContent.type}</p>
-              </div>
-            </div>
-
-            {selectedContent.copy && (
-              <div>
-                <p className="text-sm text-muted-foreground mb-1">Legenda</p>
-                <p className="p-3 bg-muted rounded-lg text-sm">{selectedContent.copy}</p>
-              </div>
-            )}
-
-            {selectedContent.hashtags && selectedContent.hashtags.length > 0 && (
-              <div>
-                <p className="text-sm text-muted-foreground mb-2">Hashtags</p>
-                <div className="flex flex-wrap gap-2">
-                  {selectedContent.hashtags.map(tag => (
-                    <span key={tag} className="px-2 py-1 bg-primary/10 text-primary text-sm rounded-full">
-                      #{tag}
-                    </span>
-                  ))}
+              
+              {/* Coluna Direita - Informações */}
+              <div className="w-[380px] flex-shrink-0 overflow-y-auto p-4 space-y-5">
+                {/* Header com X */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold mb-1">{selectedContent.title}</h3>
+                    <p className="text-sm text-muted-foreground">{getClientName(selectedContent.client_id)}</p>
+                  </div>
+                  <button
+                    onClick={() => setSelectedContent(null)}
+                    className="p-1.5 rounded-lg hover:bg-muted transition-colors flex-shrink-0"
+                  >
+                    <XMarkIcon className="w-5 h-5 text-muted-foreground" />
+                  </button>
                 </div>
+                
+                {/* Status */}
+                <div>
+                  <StatusBadge status={selectedContent.status} type="content" />
+                </div>
+                
+                {/* Briefing */}
+                {selectedContent.description && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Briefing</p>
+                    <p className="text-sm bg-muted/50 p-3 rounded-lg">{selectedContent.description}</p>
+                  </div>
+                )}
+                
+                {/* Links de Material Finalizado */}
+                {selectedContent.finalized_links && selectedContent.finalized_links.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Links</p>
+                    <div className="space-y-2">
+                      {selectedContent.finalized_links.map((link, index) => (
+                        <a
+                          key={index}
+                          href={link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-primary hover:underline truncate"
+                        >
+                          <ArrowTopRightOnSquareIcon className="w-4 h-4 flex-shrink-0" />
+                          <span className="truncate">{link}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Data e Horário */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Data de Publicação</p>
+                    <p className="text-sm font-medium">
+                      {selectedContent.publish_date 
+                        ? format(new Date(selectedContent.publish_date), "dd 'de' MMMM, yyyy", { locale: ptBR })
+                        : 'Não definida'
+                      }
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Horário</p>
+                    <p className="text-sm font-medium">{selectedContent.publish_time || 'Não definido'}</p>
+                  </div>
+                </div>
+                
+                {/* Rede Social e Tipo */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Rede Social</p>
+                    <p className="text-sm font-medium">{socialNetworksMap[selectedContent.social_network]}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Tipo</p>
+                    <p className="text-sm font-medium">{contentTypesMap[selectedContent.type] || selectedContent.type}</p>
+                  </div>
+                </div>
+                
+                {/* Legenda */}
+                {selectedContent.copy && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Legenda</p>
+                    <p className="text-sm bg-muted/50 p-3 rounded-lg whitespace-pre-wrap">{selectedContent.copy}</p>
+                  </div>
+                )}
+                
+                {/* Hashtags */}
+                {selectedContent.hashtags && selectedContent.hashtags.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Hashtags</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedContent.hashtags.map(tag => (
+                        <span key={tag} className="px-2 py-1 bg-primary/10 text-primary text-sm rounded-full">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        )}
-      </Modal>
+        </div>
+      )}
+
+      {/* Modal de Tela Cheia */}
+      {fullscreenFile && (
+        <div 
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90"
+          onClick={() => setFullscreenFile(null)}
+        >
+          <button
+            onClick={() => setFullscreenFile(null)}
+            className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
+          >
+            <XMarkIcon className="w-6 h-6 text-white" />
+          </button>
+          
+          {/* Botão de Download */}
+          <a
+            href={fullscreenFile}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-4 right-16 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-10"
+          >
+            <ArrowDownTrayIcon className="w-6 h-6 text-white" />
+          </a>
+          
+          {/\.(mp4|mov|avi|webm|mkv)$/i.test(fullscreenFile) ? (
+            <video
+              src={fullscreenFile}
+              controls
+              autoPlay
+              className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={fullscreenFile}
+              alt="Arquivo em tela cheia"
+              className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

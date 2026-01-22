@@ -1,10 +1,22 @@
-import { useState } from 'react';
-import { Plus, Edit2, Trash2, Eye, Archive, Instagram, Facebook, Linkedin, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, Edit2, Trash2, Eye, Archive, Instagram, Facebook, Linkedin, Loader2, Upload, X, AlertTriangle } from 'lucide-react';
 import { useClients, useEmployees, Client } from '@/hooks/useSupabaseData';
 import { Modal } from '@/components/ui/modal';
 import { EmptyState } from '@/components/ui/empty-state';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { uploadFile, deleteFile } from '@/lib/supabase-storage';
+import { supabase } from '@/integrations/supabase/client';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface ClientsPageProps {
   searchQuery: string;
@@ -22,6 +34,7 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [viewingClient, setViewingClient] = useState<Client | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     segment: '',
@@ -31,8 +44,15 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     linkedin: '',
     color: '#3B82F6',
     contract_start: '',
+    contract_value: '',
+    contract_months: '',
+    services_sold: [] as string[],
+    serviceInput: '',
     notes: '',
+    logoFile: null as File | null,
+    logoPreview: null as string | null,
   });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const resetForm = () => {
     setFormData({
@@ -44,9 +64,18 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
       linkedin: '',
       color: defaultColors[Math.floor(Math.random() * defaultColors.length)],
       contract_start: new Date().toISOString().split('T')[0],
+      contract_value: '',
+      contract_months: '',
+      services_sold: [],
+      serviceInput: '',
       notes: '',
+      logoFile: null,
+      logoPreview: null,
     });
     setEditingClient(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,14 +87,35 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     if (formData.tiktok.trim()) socials.tiktok = formData.tiktok.trim();
     if (formData.linkedin.trim()) socials.linkedin = formData.linkedin.trim();
 
+    let logoUrl = editingClient?.logo_url || '';
+    
+    // Upload da logo se houver novo arquivo
+    if (formData.logoFile) {
+      const uploadedUrl = await uploadFile(formData.logoFile, 'clients');
+      if (uploadedUrl) {
+        logoUrl = uploadedUrl;
+        // Deletar logo antiga se existir
+        if (editingClient?.logo_url) {
+          await deleteFile(editingClient.logo_url);
+        }
+      } else {
+        toast.error('Erro ao fazer upload da logo');
+        return;
+      }
+    }
+
     const clientData = {
       name: formData.name.trim(),
       segment: formData.segment.trim(),
-      logo: '',
+      logo: logoUrl || '',
+      logo_url: logoUrl || null,
       socials: socials,
       color: formData.color,
       status: editingClient?.status || 'active' as const,
       contract_start: formData.contract_start || null,
+      contract_value: formData.contract_value ? parseFloat(formData.contract_value) : null,
+      contract_months: formData.contract_months ? parseInt(formData.contract_months) : null,
+      services_sold: formData.services_sold.length > 0 ? formData.services_sold : null,
       notes: formData.notes.trim() || '',
     };
 
@@ -96,10 +146,63 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
       linkedin: client.socials?.linkedin || '',
       color: client.color,
       contract_start: client.contract_start || '',
+      contract_value: client.contract_value?.toString() || '',
+      contract_months: client.contract_months?.toString() || '',
+      services_sold: client.services_sold || [],
+      serviceInput: '',
       notes: client.notes,
+      logoFile: null,
+      logoPreview: client.logo_url || client.logo || null,
     });
     setEditingClient(client);
     setIsModalOpen(true);
+  };
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('A imagem deve ter no máximo 5MB');
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        toast.error('Por favor, selecione uma imagem');
+        return;
+      }
+      setFormData({
+        ...formData,
+        logoFile: file,
+        logoPreview: URL.createObjectURL(file),
+      });
+    }
+  };
+
+  const removeLogo = () => {
+    setFormData({
+      ...formData,
+      logoFile: null,
+      logoPreview: null,
+    });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const addService = () => {
+    if (formData.serviceInput.trim()) {
+      setFormData({
+        ...formData,
+        services_sold: [...formData.services_sold, formData.serviceInput.trim()],
+        serviceInput: '',
+      });
+    }
+  };
+
+  const removeService = (index: number) => {
+    setFormData({
+      ...formData,
+      services_sold: formData.services_sold.filter((_, i) => i !== index),
+    });
   };
 
   const toggleStatus = async (id: string) => {
@@ -110,9 +213,39 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    await remove(id);
-    toast.success('Cliente excluído!');
+  const handleDeleteClick = (client: Client) => {
+    setClientToDelete(client);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!clientToDelete) return;
+    
+    try {
+      // Primeiro, remover referências nas tarefas
+      const { error: tasksError } = await supabase
+        .from('tasks')
+        .update({ client_id: null })
+        .eq('client_id', clientToDelete.id);
+
+      if (tasksError) {
+        console.error('Erro ao atualizar tarefas:', tasksError);
+        toast.error('Erro ao remover referências do cliente nas tarefas');
+        return;
+      }
+
+      // Deletar logo se existir
+      if (clientToDelete.logo_url) {
+        await deleteFile(clientToDelete.logo_url);
+      }
+
+      // Agora pode deletar o cliente
+      await remove(clientToDelete.id);
+      toast.success('Cliente excluído!');
+      setClientToDelete(null);
+    } catch (error) {
+      console.error('Erro ao excluir cliente:', error);
+      toast.error('Erro ao excluir cliente');
+    }
   };
 
   const filteredClients = clients.filter(client => {
@@ -193,9 +326,9 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
               />
               <div className="p-5">
                 <div className="flex items-start gap-4 mb-4">
-                  {client.logo ? (
+                  {(client.logo_url || client.logo) ? (
                     <img 
-                      src={client.logo} 
+                      src={client.logo_url || client.logo} 
                       alt={client.name}
                       className="w-14 h-14 rounded-xl object-cover"
                     />
@@ -208,30 +341,78 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-card-foreground truncate">{client.name}</h3>
-                    <p className="text-sm text-muted-foreground">{client.segment}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Resp: {getResponsibleName(client.responsible_id)}
-                    </p>
+                    <h3 className="text-xl font-semibold text-card-foreground truncate mb-1">{client.name}</h3>
+                    <p className="text-sm font-medium text-muted-foreground">{client.segment}</p>
                   </div>
                 </div>
+
+                {/* Services Sold */}
+                {client.services_sold && client.services_sold.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-xs text-muted-foreground mb-2">Serviços vendidos</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {client.services_sold.slice(0, 3).map((service, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2 py-0.5 bg-primary/10 text-primary rounded-md text-xs font-medium"
+                        >
+                          {service}
+                        </span>
+                      ))}
+                      {client.services_sold.length > 3 && (
+                        <span className="inline-flex items-center px-2 py-0.5 bg-muted text-muted-foreground rounded-md text-xs font-medium">
+                          +{client.services_sold.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Social Links */}
                 <div className="flex items-center gap-2 mb-4">
                   {client.socials?.instagram && (
-                    <span className="p-1.5 bg-muted rounded-lg">
+                    <a
+                      href={client.socials.instagram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                      title={client.socials.instagram}
+                    >
                       <Instagram className="w-4 h-4 text-muted-foreground" />
-                    </span>
+                    </a>
                   )}
                   {client.socials?.facebook && (
-                    <span className="p-1.5 bg-muted rounded-lg">
+                    <a
+                      href={client.socials.facebook}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                      title={client.socials.facebook}
+                    >
                       <Facebook className="w-4 h-4 text-muted-foreground" />
-                    </span>
+                    </a>
+                  )}
+                  {client.socials?.tiktok && (
+                    <a
+                      href={client.socials.tiktok}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                      title={client.socials.tiktok}
+                    >
+                      <span className="text-xs font-semibold">TT</span>
+                    </a>
                   )}
                   {client.socials?.linkedin && (
-                    <span className="p-1.5 bg-muted rounded-lg">
+                    <a
+                      href={client.socials.linkedin}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                      title={client.socials.linkedin}
+                    >
                       <Linkedin className="w-4 h-4 text-muted-foreground" />
-                    </span>
+                    </a>
                   )}
                 </div>
 
@@ -257,7 +438,7 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
                       <Archive className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => handleDelete(client.id)}
+                      onClick={() => handleDeleteClick(client)}
                       className="p-1.5 text-muted-foreground hover:text-destructive transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -302,6 +483,45 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Logo do Cliente</label>
+            <div className="flex items-center gap-4">
+              {formData.logoPreview && (
+                <div className="relative">
+                  <img
+                    src={formData.logoPreview}
+                    alt="Preview"
+                    className="w-20 h-20 rounded-lg object-cover border border-border"
+                  />
+                  <button
+                    type="button"
+                    onClick={removeLogo}
+                    className="absolute -top-2 -right-2 p-1 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+              <div className="flex-1">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLogoChange}
+                  className="hidden"
+                  id="logo-upload"
+                />
+                <label
+                  htmlFor="logo-upload"
+                  className="flex items-center gap-2 px-4 py-2 bg-muted rounded-lg cursor-pointer hover:bg-muted/80 transition-colors"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span className="text-sm">{formData.logoPreview ? 'Alterar Logo' : 'Upload de Logo'}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-foreground mb-1">Cor Identificadora</label>
             <div className="flex items-center gap-2">
               <input
@@ -328,50 +548,123 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Instagram</label>
               <input
-                type="text"
+                type="url"
                 value={formData.instagram}
                 onChange={(e) => setFormData({ ...formData, instagram: e.target.value })}
-                placeholder="@usuario"
+                placeholder="https://instagram.com/usuario"
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Facebook</label>
               <input
-                type="text"
+                type="url"
                 value={formData.facebook}
                 onChange={(e) => setFormData({ ...formData, facebook: e.target.value })}
+                placeholder="https://facebook.com/usuario"
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">TikTok</label>
               <input
-                type="text"
+                type="url"
                 value={formData.tiktok}
                 onChange={(e) => setFormData({ ...formData, tiktok: e.target.value })}
+                placeholder="https://tiktok.com/@usuario"
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">LinkedIn</label>
               <input
-                type="text"
+                type="url"
                 value={formData.linkedin}
                 onChange={(e) => setFormData({ ...formData, linkedin: e.target.value })}
+                placeholder="https://linkedin.com/in/usuario"
+                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Data de Início</label>
+              <input
+                type="date"
+                value={formData.contract_start}
+                onChange={(e) => setFormData({ ...formData, contract_start: e.target.value })}
+                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Valor de Contrato (R$)</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={formData.contract_value}
+                onChange={(e) => setFormData({ ...formData, contract_value: e.target.value })}
+                placeholder="0.00"
+                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Meses de Contrato</label>
+              <input
+                type="number"
+                min="1"
+                value={formData.contract_months}
+                onChange={(e) => setFormData({ ...formData, contract_months: e.target.value })}
+                placeholder="12"
                 className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-foreground mb-1">Data de Início</label>
-            <input
-              type="date"
-              value={formData.contract_start}
-              onChange={(e) => setFormData({ ...formData, contract_start: e.target.value })}
-              className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-            />
+            <label className="block text-sm font-medium text-foreground mb-1">Serviços Vendidos</label>
+            <div className="flex gap-2 mb-2">
+              <input
+                type="text"
+                value={formData.serviceInput}
+                onChange={(e) => setFormData({ ...formData, serviceInput: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addService();
+                  }
+                }}
+                placeholder="Digite um serviço e pressione Enter"
+                className="flex-1 px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+              />
+              <button
+                type="button"
+                onClick={addService}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Adicionar
+              </button>
+            </div>
+            {formData.services_sold.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {formData.services_sold.map((service, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                  >
+                    {service}
+                    <button
+                      type="button"
+                      onClick={() => removeService(index)}
+                      className="hover:text-primary/80"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -412,9 +705,9 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
         {viewingClient && (
           <div className="space-y-4">
             <div className="flex items-center gap-4">
-              {viewingClient.logo ? (
+              {(viewingClient.logo_url || viewingClient.logo) ? (
                 <img 
-                  src={viewingClient.logo} 
+                  src={viewingClient.logo_url || viewingClient.logo} 
                   alt={viewingClient.name}
                   className="w-20 h-20 rounded-xl object-cover"
                 />
@@ -441,7 +734,86 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
                 <p className="text-sm text-muted-foreground">Início do Contrato</p>
                 <p className="font-medium">{viewingClient.contract_start || 'Não informado'}</p>
               </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Valor do Contrato</p>
+                <p className="font-medium">
+                  {viewingClient.contract_value 
+                    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(viewingClient.contract_value)
+                    : 'Não informado'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Meses de Contrato</p>
+                <p className="font-medium">{viewingClient.contract_months ? `${viewingClient.contract_months} meses` : 'Não informado'}</p>
+              </div>
             </div>
+
+            {viewingClient.services_sold && viewingClient.services_sold.length > 0 && (
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Serviços Vendidos</p>
+                <div className="flex flex-wrap gap-2">
+                  {viewingClient.services_sold.map((service, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center px-3 py-1 bg-primary/10 text-primary rounded-full text-sm"
+                    >
+                      {service}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(viewingClient.socials?.instagram || viewingClient.socials?.facebook || viewingClient.socials?.tiktok || viewingClient.socials?.linkedin) && (
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">Redes Sociais</p>
+                <div className="flex items-center gap-2">
+                  {viewingClient.socials?.instagram && (
+                    <a
+                      href={viewingClient.socials.instagram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                    >
+                      <Instagram className="w-4 h-4" />
+                      <span className="text-sm">Instagram</span>
+                    </a>
+                  )}
+                  {viewingClient.socials?.facebook && (
+                    <a
+                      href={viewingClient.socials.facebook}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                    >
+                      <Facebook className="w-4 h-4" />
+                      <span className="text-sm">Facebook</span>
+                    </a>
+                  )}
+                  {viewingClient.socials?.tiktok && (
+                    <a
+                      href={viewingClient.socials.tiktok}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                    >
+                      <span className="text-sm font-semibold">TikTok</span>
+                    </a>
+                  )}
+                  {viewingClient.socials?.linkedin && (
+                    <a
+                      href={viewingClient.socials.linkedin}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-3 py-2 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+                    >
+                      <Linkedin className="w-4 h-4" />
+                      <span className="text-sm">LinkedIn</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
 
             {viewingClient.notes && (
               <div>
@@ -452,6 +824,36 @@ export function ClientsPage({ searchQuery }: ClientsPageProps) {
           </div>
         )}
       </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!clientToDelete} onOpenChange={(open) => !open && setClientToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-destructive/10 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+              </div>
+              <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="pt-2">
+              Tem certeza que deseja excluir o cliente <strong>"{clientToDelete?.name}"</strong>?
+              <br />
+              <span className="text-destructive font-medium">Esta ação não pode ser desfeita.</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setClientToDelete(null)}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir Cliente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

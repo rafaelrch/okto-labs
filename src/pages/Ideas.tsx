@@ -46,6 +46,7 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterClient, setFilterClient] = useState<string>('');
   const [filterFavorites, setFilterFavorites] = useState<boolean>(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -54,10 +55,10 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     tags: '',
     status: 'new' as Idea['status'],
     client_id: '',
-    reference_type: 'link' as 'link' | 'upload',
-    reference_link: '',
+    reference_links: [] as string[],
     reference_files: [] as string[],
   });
+  const [newLink, setNewLink] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,13 +71,45 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
       tags: '',
       status: 'new',
       client_id: '',
-      reference_type: 'link',
-      reference_link: '',
+      reference_links: [],
       reference_files: [],
     });
+    setNewLink('');
     setUploadedFiles([]);
     setFilePreviews([]);
     setEditingIdea(null);
+  };
+
+  // Adicionar link ao pressionar Enter
+  const handleAddLink = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const trimmedLink = newLink.trim();
+      if (trimmedLink && !formData.reference_links.includes(trimmedLink)) {
+        // Validar se é uma URL válida
+        try {
+          new URL(trimmedLink);
+          setFormData(prev => ({
+            ...prev,
+            reference_links: [...prev.reference_links, trimmedLink],
+          }));
+          setNewLink('');
+          toast.success('Link adicionado!');
+        } catch {
+          toast.error('URL inválida. Digite uma URL válida (ex: https://...)');
+        }
+      } else if (formData.reference_links.includes(trimmedLink)) {
+        toast.error('Este link já foi adicionado');
+      }
+    }
+  };
+
+  // Remover link
+  const removeLink = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      reference_links: prev.reference_links.filter((_, i) => i !== index),
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -87,51 +120,11 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
       return;
     }
 
-    // Preparar referências de links
-    const referenceLinks = formData.reference_type === 'link' && formData.reference_link
-      ? formData.reference_link.split(',').map(link => link.trim()).filter(Boolean)
-      : [];
+    // Usar os links do array (já validados)
+    const referenceLinks = formData.reference_links;
 
-    // Preparar referências de arquivos
-    let referenceFiles: string[] = [];
-    
-    if (formData.reference_type === 'upload') {
-      // Se houver arquivos já enviados (com URLs), usar eles
-      if (formData.reference_files.length > 0) {
-        referenceFiles = formData.reference_files;
-      }
-      // Se houver arquivos novos não enviados ainda, fazer upload agora
-      else if (uploadedFiles.length > 0) {
-        try {
-          toast.loading('Enviando arquivos...', { id: 'upload-submit' });
-          const folder = editingIdea ? `ideas/${editingIdea.id}` : 'ideas/temp';
-          const uploadPromises = uploadedFiles.map(async (file) => {
-            const url = await uploadFile(file, folder);
-            return url;
-          });
-
-          const uploadedUrls = await Promise.all(uploadPromises);
-          referenceFiles = uploadedUrls.filter((url): url is string => url !== null);
-          toast.dismiss('upload-submit');
-          
-          if (referenceFiles.length === 0) {
-            toast.error('Nenhum arquivo foi enviado com sucesso');
-            return;
-          }
-          
-          // Atualizar formData com as URLs dos arquivos enviados
-          setFormData(prev => ({
-            ...prev,
-            reference_files: referenceFiles,
-          }));
-        } catch (error) {
-          console.error('Erro ao fazer upload:', error);
-          toast.dismiss('upload-submit');
-          toast.error('Erro ao fazer upload dos arquivos');
-          return;
-        }
-      }
-    }
+    // Usar os arquivos do array (já com upload feito)
+    const referenceFiles = formData.reference_files;
 
     // Preparar dados para salvar no banco
     // Garantir que arrays vazios sejam salvos como arrays vazios, não null
@@ -175,11 +168,6 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
   };
 
   const handleEdit = (idea: Idea) => {
-    // Determinar o tipo de referência baseado no que existe
-    const hasLinks = idea.reference_links && idea.reference_links.length > 0;
-    const hasFiles = idea.reference_files && idea.reference_files.length > 0;
-    const referenceType = hasFiles ? 'upload' : hasLinks ? 'link' : 'link';
-
     setFormData({
       title: idea.title,
       description: idea.description,
@@ -187,10 +175,11 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
       tags: idea.tags.join(', '),
       status: idea.status,
       client_id: idea.client_id || '',
-      reference_type: referenceType,
-      reference_link: idea.reference_links?.join(', ') || '',
+      reference_links: idea.reference_links || [],
       reference_files: idea.reference_files || [],
     });
+    
+    setNewLink('');
     
     // Se houver arquivos, criar previews
     if (idea.reference_files && idea.reference_files.length > 0) {
@@ -288,7 +277,14 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
   const toggleFavorite = async (id: string) => {
     const idea = ideas.find(i => i.id === id);
     if (idea) {
-      await update(id, { favorite: !idea.favorite });
+      try {
+        const newFavorite = !idea.favorite;
+        await update(id, { favorite: newFavorite });
+        toast.success(newFavorite ? 'Adicionado aos favoritos!' : 'Removido dos favoritos');
+      } catch (error) {
+        console.error('Erro ao favoritar:', error);
+        toast.error('Erro ao favoritar ideia');
+      }
     }
   };
 
@@ -299,8 +295,9 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
       idea.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesCategory = !filterCategory || idea.category === filterCategory;
     const matchesStatus = !filterStatus || idea.status === filterStatus;
+    const matchesClient = !filterClient || idea.client_id === filterClient;
     const matchesFavorites = !filterFavorites || idea.favorite === true;
-    return matchesSearch && matchesCategory && matchesStatus && matchesFavorites;
+    return matchesSearch && matchesCategory && matchesStatus && matchesClient && matchesFavorites;
   });
 
   if (loading) {
@@ -315,7 +312,7 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
@@ -334,6 +331,16 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
             <option value="">Todos status</option>
             {statuses.map(st => (
               <option key={st.value} value={st.value}>{st.label}</option>
+            ))}
+          </select>
+          <select
+            value={filterClient}
+            onChange={(e) => setFilterClient(e.target.value)}
+            className="px-3 py-2 bg-muted rounded-lg text-sm border-0 outline-none"
+          >
+            <option value="">Todos clientes</option>
+            {clients.filter(c => c.status === 'active').map(client => (
+              <option key={client.id} value={client.id}>{client.name}</option>
             ))}
           </select>
           <button
@@ -371,15 +378,15 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredIdeas.map(idea => (
-            <div key={idea.id} className="bg-card rounded-xl border border-border p-5 card-hover">
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex-1">
-                  <h3 className="font-semibold text-card-foreground mb-1">{idea.title}</h3>
-                  <p className="text-sm text-muted-foreground line-clamp-2">{idea.description}</p>
+            <div key={idea.id} className="bg-card rounded-xl border border-border p-5 card-hover overflow-hidden">
+              <div className="flex items-start justify-between mb-3 gap-2">
+                <div className="flex-1 min-w-0 overflow-hidden">
+                  <h3 className="font-semibold text-card-foreground mb-1 truncate">{idea.title}</h3>
+                  <p className="text-sm text-muted-foreground line-clamp-2 break-words">{idea.description}</p>
                 </div>
                 <button
                   onClick={() => toggleFavorite(idea.id)}
-                  className={`p-1.5 rounded-lg transition-colors ${
+                  className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ${
                     idea.favorite ? 'text-warning' : 'text-muted-foreground hover:text-warning'
                   }`}
                 >
@@ -533,122 +540,124 @@ export function IdeasPage({ searchQuery }: IdeasPageProps) {
                 />
               </div>
 
+              {/* Seção de Links */}
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Referência</label>
-                <div className="flex gap-2 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, reference_type: 'link' })}
-                    className={cn(
-                      'flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors',
-                      formData.reference_type === 'link'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    )}
-                  >
-                    <LinkIcon className="w-4 h-4" />
-                    Link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormData({ ...formData, reference_type: 'upload' })}
-                    className={cn(
-                      'flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors',
-                      formData.reference_type === 'upload'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    )}
-                  >
-                    <Upload className="w-4 h-4" />
-                    Arquivos
-                  </button>
-                </div>
-
-                {formData.reference_type === 'link' ? (
-                  <input
-                    type="url"
-                    value={formData.reference_link}
-                    onChange={(e) => setFormData({ ...formData, reference_link: e.target.value })}
-                    placeholder="https://... (separar múltiplos links por vírgula)"
-                    className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept="image/*,video/*,.pdf,.doc,.docx"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-muted hover:bg-muted/80 rounded-lg border-2 border-dashed border-border transition-colors"
-                    >
-                      <Upload className="w-5 h-5 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">Clique para adicionar arquivos</span>
-                    </button>
-
-                    {/* Preview dos arquivos */}
-                    {(filePreviews.length > 0 || formData.reference_files.length > 0) && (
-                      <div className="space-y-2">
-                        {filePreviews.map((preview, index) => {
-                          const file = uploadedFiles[index];
-                          // Verificar se é uma imagem: pelo tipo do arquivo ou pela URL
-                          const isImage = file?.type.startsWith('image/') || preview.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                          return (
-                            <div key={index} className="relative group">
-                              {isImage ? (
-                                <img
-                                  src={preview}
-                                  alt={`Preview ${index + 1}`}
-                                  className="w-full h-32 object-cover rounded-lg"
-                                />
-                              ) : (
-                                <div className="w-full h-32 bg-muted rounded-lg flex items-center justify-center">
-                                  <span className="text-sm text-muted-foreground">{file?.name || `Arquivo ${index + 1}`}</span>
-                                </div>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeFile(index)}
-                                className="absolute top-2 right-2 p-1 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                        {formData.reference_files.filter((_, i) => i >= filePreviews.length).map((url, index) => {
-                          const actualIndex = index + filePreviews.length;
-                          const isImage = url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
-                          return (
-                            <div key={actualIndex} className="relative group">
-                              {isImage ? (
-                                <img
-                                  src={url}
-                                  alt={`Uploaded ${actualIndex + 1}`}
-                                  className="w-full h-32 object-cover rounded-lg"
-                                />
-                              ) : (
-                                <div className="w-full h-32 bg-muted rounded-lg flex items-center justify-center">
-                                  <span className="text-sm text-muted-foreground">Arquivo enviado</span>
-                                </div>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeFile(actualIndex)}
-                                className="absolute top-2 right-2 p-1 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          );
-                        })}
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  <LinkIcon className="w-4 h-4 inline mr-1" />
+                  Links de Referência
+                </label>
+                <input
+                  type="url"
+                  value={newLink}
+                  onChange={(e) => setNewLink(e.target.value)}
+                  onKeyDown={handleAddLink}
+                  placeholder="Cole a URL e pressione Enter"
+                  className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary"
+                />
+                {formData.reference_links.length > 0 && (
+                  <div className="mt-2 space-y-1.5 max-h-24 overflow-y-auto">
+                    {formData.reference_links.map((link, index) => (
+                      <div key={index} className="flex items-center gap-2 px-2 py-1.5 bg-muted/50 rounded-lg group">
+                        <LinkIcon className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                        <a 
+                          href={link} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline truncate flex-1"
+                        >
+                          {link}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => removeLink(index)}
+                          className="p-0.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    )}
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Seção de Arquivos */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  <Upload className="w-4 h-4 inline mr-1" />
+                  Arquivos de Referência
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,video/*,.pdf,.doc,.docx"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-muted hover:bg-muted/80 rounded-lg border-2 border-dashed border-border transition-colors"
+                >
+                  <Upload className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Clique para adicionar arquivos</span>
+                </button>
+
+                {/* Preview dos arquivos */}
+                {(filePreviews.length > 0 || formData.reference_files.length > 0) && (
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {filePreviews.map((preview, index) => {
+                      const file = uploadedFiles[index];
+                      const isImage = file?.type.startsWith('image/') || preview.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                      return (
+                        <div key={index} className="relative group aspect-square">
+                          {isImage ? (
+                            <img
+                              src={preview}
+                              alt={`Preview ${index + 1}`}
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center p-2">
+                              <span className="text-xs text-muted-foreground text-center truncate">{file?.name || `Arquivo ${index + 1}`}</span>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeFile(index)}
+                            className="absolute top-1 right-1 p-0.5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {formData.reference_files.filter((_, i) => i >= filePreviews.length).map((url, index) => {
+                      const actualIndex = index + filePreviews.length;
+                      const isImage = url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                      return (
+                        <div key={actualIndex} className="relative group aspect-square">
+                          {isImage ? (
+                            <img
+                              src={url}
+                              alt={`Uploaded ${actualIndex + 1}`}
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center p-2">
+                              <span className="text-xs text-muted-foreground text-center">Arquivo</span>
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeFile(actualIndex)}
+                            className="absolute top-1 right-1 p-0.5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

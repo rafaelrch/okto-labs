@@ -5,8 +5,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Modal } from '@/components/ui/modal';
+import { Tabs } from '@/components/ui/tabs-animated';
 import { toast } from 'sonner';
-import { format, isPast, addDays, nextSaturday, nextMonday, addWeeks } from 'date-fns';
+import { format, isPast, addDays, nextSaturday, nextMonday, addWeeks, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isSameDay, isWithinInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +43,20 @@ const statusGroups = [
   }
 ];
 
+// Função helper para parsear data como local (evita problema de timezone)
+const parseLocalDate = (dateString: string | null): Date | null => {
+  if (!dateString) return null;
+  // Se a data está no formato YYYY-MM-DD, parsear como local
+  const parts = dateString.split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // Mês é 0-indexed
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  return new Date(dateString);
+};
+
 export function TasksPage({ searchQuery }: TasksPageProps) {
   const { data: tasks, loading, create, update, remove } = useTasks();
   const { data: clients } = useClients();
@@ -51,6 +66,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState<Record<string, string>>({});
   const [selectedResponsible, setSelectedResponsible] = useState<string | null>(null);
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -164,13 +180,59 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  // Função para verificar se a tarefa está no intervalo de data selecionado
+  const matchesDateFilter = (task: Task): boolean => {
+    if (!selectedDateFilter) return true;
+    
+    // Se não há data de entrega, não mostrar quando há filtro ativo
+    if (!task.due_date) return false;
+
+    const taskDate = parseLocalDate(task.due_date);
+    if (!taskDate) return false;
+    taskDate.setHours(0, 0, 0, 0);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    switch (selectedDateFilter) {
+      case 'today':
+        return isSameDay(taskDate, today);
+      
+      case 'tomorrow':
+        const tomorrow = addDays(today, 1);
+        return isSameDay(taskDate, tomorrow);
+      
+      case 'thisWeek':
+        const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Segunda-feira
+        const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+        weekEnd.setHours(23, 59, 59, 999);
+        return isWithinInterval(taskDate, { start: weekStart, end: weekEnd });
+      
+      case 'thisMonth':
+        const monthStart = startOfMonth(today);
+        const monthEnd = endOfMonth(today);
+        monthEnd.setHours(23, 59, 59, 999);
+        return isWithinInterval(taskDate, { start: monthStart, end: monthEnd });
+      
+      case 'nextMonth':
+        const nextMonthStart = startOfMonth(addDays(endOfMonth(today), 1));
+        const nextMonthEnd = endOfMonth(nextMonthStart);
+        nextMonthEnd.setHours(23, 59, 59, 999);
+        return isWithinInterval(taskDate, { start: nextMonthStart, end: nextMonthEnd });
+      
+      default:
+        return true;
+    }
+  };
+
   // Filter tasks
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = 
       task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       task.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesResponsible = !selectedResponsible || task.responsible_id === selectedResponsible;
-    return matchesSearch && matchesResponsible;
+    const matchesDate = matchesDateFilter(task);
+    return matchesSearch && matchesResponsible && matchesDate;
   });
 
   // Get active employees for filter tabs
@@ -229,72 +291,90 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
     );
   }
 
-  if (filteredTasks.length === 0 && !searchQuery && !selectedResponsible) {
-    return (
-      <EmptyState
-        icon={Check}
-        title="Nenhuma tarefa encontrada"
-        description="Crie uma nova tarefa para começar!"
-      />
-    );
-  }
+  // Criar tabs para o filtro
+  const filterTabs = [
+    {
+      title: 'Todas',
+      value: 'all',
+    },
+    ...activeEmployees.map(emp => ({
+      title: `${getInitials(emp.name)} ${emp.name.split(' ')[0]}`,
+      value: emp.id,
+    }))
+  ];
+
+  const handleTabChange = (value: string) => {
+    if (value === 'all') {
+      setSelectedResponsible(null);
+    } else {
+      setSelectedResponsible(value);
+    }
+  };
+
+  const dateFilterOptions = [
+    { value: 'today', label: 'Hoje' },
+    { value: 'tomorrow', label: 'Amanhã' },
+    { value: 'thisWeek', label: 'Esta semana' },
+    { value: 'thisMonth', label: 'Este mês' },
+    { value: 'nextMonth', label: 'Mês que vem' },
+  ];
 
   return (
-    <div className="space-y-0">
+    <div className="space-y-0 bg-white min-h-screen" style={{ backgroundColor: '#ffffff' }}>
       {/* Filter Tabs */}
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border bg-white overflow-x-auto">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-2 px-4 py-3 border-b border-border bg-white">
+        <div className="flex items-center justify-between gap-2">
+          <Tabs
+            tabs={filterTabs}
+            containerClassName="flex-1"
+            activeTabClassName="bg-primary"
+            tabClassName="text-sm font-medium"
+            contentClassName=""
+            onValueChange={handleTabChange}
+            defaultValue={selectedResponsible || 'all'}
+          />
           <button
-            onClick={() => setSelectedResponsible(null)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap",
-              !selectedResponsible 
-                ? "bg-primary text-primary-foreground" 
-                : "bg-muted text-muted-foreground hover:text-foreground"
-            )}
+            onClick={handleCreateNewTask}
+            className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-sm font-medium hover:bg-primary/90 transition-colors whitespace-nowrap"
           >
-            Todas
+            <Plus className="w-4 h-4" />
+            Add Tarefa
           </button>
-          {activeEmployees.map(emp => (
-            <button
-              key={emp.id}
-              onClick={() => setSelectedResponsible(emp.id)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap",
-                selectedResponsible === emp.id 
-                  ? "bg-primary text-primary-foreground" 
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <div className={cn(
-                "w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium",
-                selectedResponsible === emp.id 
-                  ? "bg-primary-foreground/20 text-primary-foreground" 
-                  : "bg-primary/20 text-primary"
-              )}>
-                {getInitials(emp.name)}
-              </div>
-              {emp.name.split(' ')[0]}
-            </button>
-          ))}
         </div>
-        <button
-          onClick={handleCreateNewTask}
-          className="flex items-center gap-2 px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-sm font-medium hover:bg-primary/90 transition-colors whitespace-nowrap"
-        >
-          <Plus className="w-4 h-4" />
-          Add Tarefa
-        </button>
+        
+        {/* Date Filter */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium">Filtro de data:</span>
+          <div className="flex items-center gap-1 flex-wrap">
+            <button
+              onClick={() => setSelectedDateFilter(null)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                !selectedDateFilter
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              }`}
+            >
+              Todas
+            </button>
+            {dateFilterOptions.map(option => (
+              <button
+                key={option.value}
+                onClick={() => setSelectedDateFilter(option.value)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                  selectedDateFilter === option.value
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Empty state when filter has no results */}
-      {filteredTasks.length === 0 && (selectedResponsible || searchQuery) && (
-        <div className="py-12 text-center text-muted-foreground">
-          <p>Nenhuma tarefa encontrada para este filtro</p>
-        </div>
-      )}
 
-      {statusSections.filter(s => s.tasks.length > 0).map(section => {
+      {statusSections.map(section => {
         const isCollapsed = collapsedSections[section.key];
         const SectionIcon = section.icon;
 
@@ -409,6 +489,7 @@ export function TasksPage({ searchQuery }: TasksPageProps) {
         <TaskDetailModal
           task={selectedTask}
           employees={employees}
+          clients={clients}
           onClose={() => setSelectedTask(null)}
           onUpdate={handleUpdateTask}
           onCreate={create}
@@ -500,7 +581,11 @@ function TaskRow({
               {task.status === 'in_progress' && <div className="w-2 h-2 rounded-full bg-blue-500" />}
             </button>
           </PopoverTrigger>
-          <PopoverContent className="w-48 p-1" align="start">
+          <PopoverContent 
+            className="w-48 p-1" 
+            align="start"
+          >
+            <div onClick={(e) => e.stopPropagation()}>
             {statusGroups.map(group => (
               <div key={group.label}>
                 <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">{group.label}</div>
@@ -509,7 +594,10 @@ function TaskRow({
                   return (
                     <button
                       key={s.value}
-                      onClick={() => onUpdate(task.id, { status: s.value as Task['status'] })}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdate(task.id, { status: s.value as Task['status'] });
+                      }}
                       className={cn(
                         "flex items-center justify-between w-full px-2 py-2 rounded-md transition-colors",
                         task.status === s.value ? "bg-muted" : "hover:bg-muted/50"
@@ -533,6 +621,7 @@ function TaskRow({
                 })}
               </div>
             ))}
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -559,7 +648,11 @@ function TaskRow({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 p-0" align="start">
+        <PopoverContent 
+          className="w-72 p-0" 
+          align="start"
+        >
+          <div onClick={(e) => e.stopPropagation()}>
           <div className="p-2 border-b border-border">
             <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
               <Search className="w-4 h-4 text-muted-foreground" />
@@ -567,6 +660,7 @@ function TaskRow({
                 type="text"
                 value={assigneeSearch}
                 onChange={(e) => setAssigneeSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 placeholder="Buscar ou digitar email..."
                 className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
               />
@@ -575,7 +669,10 @@ function TaskRow({
           <div className="p-1 max-h-64 overflow-y-auto">
             <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Responsáveis</div>
             <button
-              onClick={() => onUpdate(task.id, { responsible_id: null })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(task.id, { responsible_id: null });
+              }}
               className={cn(
                 "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
                 !task.responsible_id ? "bg-muted" : "hover:bg-muted/50"
@@ -589,7 +686,10 @@ function TaskRow({
             {filteredEmployees.map(emp => (
               <button
                 key={emp.id}
-                onClick={() => onUpdate(task.id, { responsible_id: emp.id })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate(task.id, { responsible_id: emp.id });
+                }}
                 className={cn(
                   "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
                   task.responsible_id === emp.id ? "bg-muted" : "hover:bg-muted/50"
@@ -601,12 +701,16 @@ function TaskRow({
                 <span className="text-sm">{emp.name}</span>
               </button>
             ))}
-            <button className="flex items-center gap-3 w-full px-2 py-2 rounded-md hover:bg-muted/50 transition-colors mt-1 border-t border-border pt-2">
+            <button 
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-3 w-full px-2 py-2 rounded-md hover:bg-muted/50 transition-colors mt-1 border-t border-border pt-2"
+            >
               <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
                 <UserPlus className="w-4 h-4 text-primary" />
               </div>
               <span className="text-sm text-muted-foreground">Convidar por email</span>
             </button>
+          </div>
           </div>
         </PopoverContent>
       </Popover>
@@ -620,9 +724,9 @@ function TaskRow({
           >
             {task.due_date ? (
               <span className={cn(
-                isPast(new Date(task.due_date)) && task.status !== 'completed' && 'text-red-500'
+                isPast(parseLocalDate(task.due_date) || new Date()) && task.status !== 'completed' && 'text-red-500'
               )}>
-                {format(new Date(task.due_date), 'd/M/yy', { locale: ptBR })}
+                {format(parseLocalDate(task.due_date) || new Date(), 'd/M/yy', { locale: ptBR })}
               </span>
             ) : (
               <div className="flex items-center gap-1 text-gray-400">
@@ -631,14 +735,21 @@ function TaskRow({
             )}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-80 p-0" align="start">
+        <PopoverContent 
+          className="w-80 p-0" 
+          align="start"
+        >
+          <div onClick={(e) => e.stopPropagation()}>
           <div className="grid grid-cols-2">
             {/* Quick Options */}
             <div className="border-r border-border p-2">
               {getQuickDates().map((option, i) => (
                 <button
                   key={i}
-                  onClick={() => onUpdate(task.id, { due_date: format(option.date, 'yyyy-MM-dd') })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdate(task.id, { due_date: format(option.date, 'yyyy-MM-dd') });
+                  }}
                   className="flex items-center justify-between w-full px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
                 >
                   <span>{option.label}</span>
@@ -647,7 +758,10 @@ function TaskRow({
               ))}
               {task.due_date && (
                 <button
-                  onClick={() => onUpdate(task.id, { due_date: null })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdate(task.id, { due_date: null });
+                  }}
                   className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors text-red-500 mt-2 border-t border-border pt-2"
                 >
                   <X className="w-4 h-4" />
@@ -660,10 +774,15 @@ function TaskRow({
               <input
                 type="date"
                 value={task.due_date || ''}
-                onChange={(e) => onUpdate(task.id, { due_date: e.target.value || null })}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  onUpdate(task.id, { due_date: e.target.value || null });
+                }}
+                onClick={(e) => e.stopPropagation()}
                 className="w-full px-2 py-1.5 bg-muted rounded-md border-0 outline-none text-sm"
               />
             </div>
+          </div>
           </div>
         </PopoverContent>
       </Popover>
@@ -676,17 +795,22 @@ function TaskRow({
             className="flex items-center gap-1 px-2 py-1 rounded-md hover:bg-black/5 transition-colors text-sm min-h-[32px]"
           >
             <Flag className={cn("w-4 h-4", priorityInfo.color)} />
-            {task.priority !== 'medium' && (
-              <span className={priorityInfo.color}>{priorityInfo.label}</span>
-            )}
+            <span className={priorityInfo.color}>{priorityInfo.label}</span>
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-48 p-1" align="start">
+        <PopoverContent 
+          className="w-48 p-1" 
+          align="start"
+        >
+          <div onClick={(e) => e.stopPropagation()}>
           <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Prioridade da Tarefa</div>
           {priorities.map(p => (
             <button
               key={p.value}
-              onClick={() => onUpdate(task.id, { priority: p.value as Task['priority'] })}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUpdate(task.id, { priority: p.value as Task['priority'] });
+              }}
               className={cn(
                 "flex items-center justify-between w-full px-3 py-2 text-sm rounded-md transition-colors",
                 task.priority === p.value ? "bg-muted" : "hover:bg-muted/50"
@@ -700,12 +824,16 @@ function TaskRow({
             </button>
           ))}
           <button
-            onClick={() => onUpdate(task.id, { priority: 'medium' })}
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpdate(task.id, { priority: 'medium' });
+            }}
             className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-muted/50 transition-colors border-t border-border mt-1"
           >
             <Ban className="w-4 h-4 text-muted-foreground" />
             <span>Limpar</span>
           </button>
+          </div>
         </PopoverContent>
       </Popover>
 
@@ -723,7 +851,11 @@ function TaskRow({
             {statusInfo.label}
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-56 p-0" align="start">
+        <PopoverContent 
+          className="w-56 p-0" 
+          align="start"
+        >
+          <div onClick={(e) => e.stopPropagation()}>
           <div className="p-2 border-b border-border">
             <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
               <Search className="w-4 h-4 text-muted-foreground" />
@@ -731,6 +863,7 @@ function TaskRow({
                 type="text"
                 value={statusSearch}
                 onChange={(e) => setStatusSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
                 placeholder="Buscar..."
                 className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
               />
@@ -747,7 +880,10 @@ function TaskRow({
                     return (
                       <button
                         key={s.value}
-                        onClick={() => onUpdate(task.id, { status: s.value as Task['status'] })}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdate(task.id, { status: s.value as Task['status'] });
+                        }}
                         className={cn(
                           "flex items-center justify-between w-full px-2 py-2 rounded-md transition-colors",
                           task.status === s.value ? "bg-muted" : "hover:bg-muted/50"
@@ -765,6 +901,7 @@ function TaskRow({
                   })}
               </div>
             ))}
+          </div>
           </div>
         </PopoverContent>
       </Popover>
@@ -803,6 +940,7 @@ function TaskRow({
 interface TaskDetailModalProps {
   task: Task;
   employees: any[];
+  clients: any[];
   onClose: () => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
   onCreate?: (data: any) => Promise<any>;
@@ -814,6 +952,7 @@ interface TaskDetailModalProps {
 function TaskDetailModal({
   task,
   employees,
+  clients,
   onClose,
   onUpdate,
   onCreate,
@@ -822,10 +961,31 @@ function TaskDetailModal({
   getInitials,
 }: TaskDetailModalProps) {
   const isNewTask = task.id === 'new';
+  const [localTask, setLocalTask] = useState<Task>(task);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || '');
+  const [showDescription, setShowDescription] = useState(!!task.description);
   const [assigneeSearch, setAssigneeSearch] = useState('');
   const [statusSearch, setStatusSearch] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current && showDescription) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [description, showDescription]);
+
+  // Sincronizar localTask quando task mudar (para edição de tarefas existentes)
+  useEffect(() => {
+    if (!isNewTask && task.id !== 'new') {
+      setLocalTask(task);
+      setTitle(task.title);
+      setDescription(task.description || '');
+      setShowDescription(!!task.description);
+    }
+  }, [task.id]);
 
   const getStatusInfo = (status: Task['status']) => {
     for (const group of statusGroups) {
@@ -835,9 +995,9 @@ function TaskDetailModal({
     return statusGroups[0].statuses[0];
   };
 
-  const statusInfo = getStatusInfo(task.status);
+  const statusInfo = getStatusInfo(localTask.status);
   const StatusIcon = statusInfo.icon;
-  const assigneeName = getEmployeeName(task.responsible_id);
+  const assigneeName = getEmployeeName(localTask.responsible_id);
   const filteredEmployees = employees.filter(e => 
     e.status === 'active' && 
     e.name.toLowerCase().includes(assigneeSearch.toLowerCase())
@@ -854,12 +1014,12 @@ function TaskDetailModal({
           user_id: user?.id || null,
           title: title.trim(),
           description: description || '',
-          responsible_id: task.responsible_id || null,
-          priority: task.priority || 'medium',
-          due_date: task.due_date || null,
-          client_id: task.client_id || null,
-          status: task.status || 'pending',
-          tags: task.tags || [],
+          responsible_id: localTask.responsible_id || null,
+          priority: localTask.priority || 'medium',
+          due_date: localTask.due_date || null,
+          client_id: localTask.client_id || null,
+          status: localTask.status || 'pending',
+          tags: localTask.tags || [],
         });
         toast.success('Tarefa criada!');
         onClose();
@@ -868,229 +1028,394 @@ function TaskDetailModal({
         toast.error('Erro ao criar tarefa');
       }
     } else {
-      onUpdate(task.id, { title, description });
+      onUpdate(localTask.id, { title, description });
       onClose();
     }
   };
 
-  const handleUpdate = async (data: Partial<Task>) => {
+  const handleUpdate = (data: Partial<Task>) => {
     if (isNewTask) {
-      // Atualizar o estado local da tarefa temporária
-      Object.assign(task, data);
+      // Atualizar o estado local da tarefa temporária em tempo real
+      setLocalTask(prev => ({ ...prev, ...data }));
       // Se for título ou descrição, atualizar o estado local também
       if (data.title !== undefined) setTitle(data.title);
       if (data.description !== undefined) setDescription(data.description);
     } else {
-      await onUpdate(task.id, data);
+      // Para tarefas existentes, salvar imediatamente
+      onUpdate(localTask.id, data);
     }
   };
+
+  const getPriorityInfo = (priority: Task['priority']) => {
+    return priorities.find(p => p.value === priority) || priorities[2];
+  };
+
+  const getClientName = (id?: string | null) => {
+    if (!id) return null;
+    return clients.find(c => c.id === id)?.name || null;
+  };
+
+  const getQuickDates = () => {
+    const today = new Date();
+    return [
+      { label: 'Hoje', date: today, day: format(today, 'EEE', { locale: ptBR }) },
+      { label: 'Amanhã', date: addDays(today, 1), day: format(addDays(today, 1), 'EEE', { locale: ptBR }) },
+      { label: 'Este fim de semana', date: nextSaturday(today), day: format(nextSaturday(today), 'EEE', { locale: ptBR }) },
+      { label: 'Próxima semana', date: nextMonday(today), day: format(nextMonday(today), 'EEE', { locale: ptBR }) },
+      { label: '2 semanas', date: addWeeks(today, 2), day: format(addWeeks(today, 2), 'dd MMM', { locale: ptBR }) },
+      { label: '4 semanas', date: addWeeks(today, 4), day: format(addWeeks(today, 4), 'dd MMM', { locale: ptBR }) },
+    ];
+  };
+
+  const priorityInfo = getPriorityInfo(localTask.priority);
+  const clientName = getClientName(localTask.client_id);
 
   return (
     <Modal
       isOpen={true}
       onClose={onClose}
-      title=""
-      size="lg"
-    >
-      <div className="space-y-6">
-        {/* Title */}
+      title={
         <input
           type="text"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (isNewTask) {
+              handleUpdate({ title: e.target.value });
+            }
+          }}
           onBlur={() => {
             if (!isNewTask) {
               handleSave();
             }
           }}
-          placeholder={isNewTask ? "Nome da tarefa ou digite '/' para comandos" : undefined}
+          placeholder="Nome da tarefa"
           className="w-full text-2xl font-bold bg-transparent border-0 outline-none focus:ring-0 placeholder:text-muted-foreground/50"
+          onClick={(e) => e.stopPropagation()}
         />
+      }
+      size="lg"
+      autoHeight={true}
+    >
+      <div className="space-y-4">
 
-        {/* Details Grid */}
-        <div className="grid grid-cols-2 gap-6">
-          {/* Left Column */}
-          <div className="space-y-4">
-            {/* Status */}
-            <div>
-              <label className="text-sm font-medium text-black mb-2 block">Status</label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium",
-                    statusInfo.bgColor,
-                    task.status === 'completed' ? 'text-white' : statusInfo.color
-                  )}>
-                    <StatusIcon className="w-4 h-4" />
-                    {statusInfo.label}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-0" align="start">
-                  <div className="p-2 border-b border-border">
-                    <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
-                      <Search className="w-4 h-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={statusSearch}
-                        onChange={(e) => setStatusSearch(e.target.value)}
-                        placeholder="Buscar..."
-                        className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
-                      />
+        {/* Add Description Button */}
+        {!showDescription ? (
+          <button
+            onClick={() => setShowDescription(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-black/5 rounded-lg transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            Adicionar descrição
+          </button>
+        ) : (
+          <textarea
+            ref={textareaRef}
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              if (isNewTask) {
+                handleUpdate({ description: e.target.value });
+              }
+              // Auto-resize
+              if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+                textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+              }
+            }}
+            onBlur={() => {
+              if (!isNewTask) {
+                handleUpdate({ description });
+              }
+            }}
+            className="w-full px-3 py-2 bg-transparent border-0 outline-none focus:ring-0 resize-none text-sm placeholder:text-muted-foreground/50 overflow-hidden"
+            placeholder="Digite sua descrição..."
+            autoFocus
+            style={{ minHeight: '60px' }}
+          />
+        )}
+
+        {/* Extra Buttons Row */}
+        <div className="flex items-center flex-wrap gap-2">
+          {/* Status */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                statusInfo.bgColor,
+                localTask.status === 'completed' ? 'text-white border-transparent' : cn(statusInfo.color, 'border-gray-200')
+              )}>
+                <StatusIcon className="w-4 h-4" />
+                {statusInfo.label}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-0" align="start">
+              <div className="p-2 border-b border-border">
+                <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
+                  <Search className="w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={statusSearch}
+                    onChange={(e) => setStatusSearch(e.target.value)}
+                    placeholder="Buscar..."
+                    className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
+                  />
+                </div>
+              </div>
+              <div className="p-1 max-h-64 overflow-y-auto">
+                {statusGroups.map(group => (
+                  <div key={group.label}>
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">{group.label}</div>
+                    {group.statuses
+                      .filter(s => s.label.toLowerCase().includes(statusSearch.toLowerCase()))
+                      .map(s => {
+                        const Icon = s.icon;
+                        return (
+                          <button
+                            key={s.value}
+                            onClick={() => {
+                              handleUpdate({ status: s.value as Task['status'] });
+                            }}
+                            className={cn(
+                              "flex items-center justify-between w-full px-2 py-2 rounded-md transition-colors",
+                              localTask.status === s.value ? "bg-muted" : "hover:bg-muted/50"
+                            )}
+                          >
+                            <div className={cn("flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium", s.bgColor)}>
+                              <Icon className="w-3.5 h-3.5" />
+                              {s.label}
+                            </div>
+                            {localTask.status === s.value && <Check className="w-4 h-4" />}
+                          </button>
+                        );
+                      })}
+                  </div>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Cliente */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-muted-foreground border border-gray-200 hover:bg-black/5 transition-colors">
+                <Users className="w-4 h-4" />
+                {clientName || 'Cliente'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-1" align="start">
+              <button
+                onClick={() => {
+                  handleUpdate({ client_id: null });
+                }}
+                className={cn(
+                  "flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors",
+                  !localTask.client_id ? "bg-muted" : "hover:bg-muted/50"
+                )}
+              >
+                Nenhum
+              </button>
+              {clients.filter(c => c.status === 'active').map(client => (
+                <button
+                  key={client.id}
+                  onClick={() => {
+                    handleUpdate({ client_id: client.id });
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md transition-colors",
+                    localTask.client_id === client.id ? "bg-muted" : "hover:bg-muted/50"
+                  )}
+                >
+                  {client.name}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+
+          {/* Responsável */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-muted-foreground border border-gray-200 hover:bg-black/5 transition-colors">
+                {assigneeName ? (
+                  <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center text-xs font-medium text-primary-foreground">
+                    {getInitials(assigneeName)}
+                  </div>
+                ) : (
+                  <Users className="w-4 h-4" />
+                )}
+                {assigneeName ? assigneeName.split(' ')[0] : 'Responsável'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 p-0" align="start">
+              <div className="p-2 border-b border-border">
+                <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
+                  <Search className="w-4 h-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={assigneeSearch}
+                    onChange={(e) => setAssigneeSearch(e.target.value)}
+                    placeholder="Buscar ou digitar email..."
+                    className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
+                  />
+                </div>
+              </div>
+              <div className="p-1 max-h-64 overflow-y-auto">
+                <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Responsáveis</div>
+                <button
+                  onClick={() => {
+                    handleUpdate({ responsible_id: null });
+                  }}
+                  className={cn(
+                    "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
+                    !localTask.responsible_id ? "bg-muted" : "hover:bg-muted/50"
+                  )}
+                >
+                  <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
+                    <Ban className="w-4 h-4 text-gray-400" />
+                  </div>
+                  <span className="text-sm">Sem responsável</span>
+                </button>
+                {filteredEmployees.map(emp => (
+                  <button
+                    key={emp.id}
+                    onClick={() => {
+                      handleUpdate({ responsible_id: emp.id });
+                    }}
+                    className={cn(
+                      "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
+                      localTask.responsible_id === emp.id ? "bg-muted" : "hover:bg-muted/50"
+                    )}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-medium text-primary-foreground">
+                      {getInitials(emp.name)}
                     </div>
-                  </div>
-                  <div className="p-1 max-h-64 overflow-y-auto">
-                    {statusGroups.map(group => (
-                      <div key={group.label}>
-                        <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">{group.label}</div>
-                        {group.statuses
-                          .filter(s => s.label.toLowerCase().includes(statusSearch.toLowerCase()))
-                          .map(s => {
-                            const Icon = s.icon;
-                            return (
-                              <button
-                                key={s.value}
-                                onClick={() => {
-                                  handleUpdate({ status: s.value as Task['status'] });
-                                  if (!isNewTask) onClose();
-                                }}
-                                className={cn(
-                                  "flex items-center justify-between w-full px-2 py-2 rounded-md transition-colors",
-                                  task.status === s.value ? "bg-muted" : "hover:bg-muted/50"
-                                )}
-                              >
-                                <div className={cn("flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium", s.bgColor)}>
-                                  <Icon className="w-3.5 h-3.5" />
-                                  {s.label}
-                                </div>
-                                {task.status === s.value && <Check className="w-4 h-4" />}
-                              </button>
-                            );
-                          })}
-                      </div>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
+                    <span className="text-sm">{emp.name}</span>
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
 
-            {/* Tags */}
-            <div>
-              <label className="text-sm font-medium text-black mb-2 block flex items-center gap-2">
+          {/* Data */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-muted-foreground border border-gray-200 hover:bg-black/5 transition-colors">
+                <Calendar className="w-4 h-4" />
+                {localTask.due_date ? format(parseLocalDate(localTask.due_date) || new Date(), 'd/M/yy', { locale: ptBR }) : 'Data'}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-0" align="start">
+              <div className="grid grid-cols-2">
+                <div className="border-r border-border p-2">
+                  {getQuickDates().map((option, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        handleUpdate({ due_date: format(option.date, 'yyyy-MM-dd') });
+                      }}
+                      className="flex items-center justify-between w-full px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+                    >
+                      <span>{option.label}</span>
+                      <span className="text-muted-foreground text-xs">{option.day}</span>
+                    </button>
+                  ))}
+                  {localTask.due_date && (
+                    <button
+                      onClick={() => {
+                        handleUpdate({ due_date: null });
+                      }}
+                      className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors text-red-500 mt-2 border-t border-border pt-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Remover data
+                    </button>
+                  )}
+                </div>
+                <div className="p-3">
+                  <input
+                    type="date"
+                    value={localTask.due_date || ''}
+                    onChange={(e) => {
+                      handleUpdate({ due_date: e.target.value || null });
+                    }}
+                    className="w-full px-2 py-1.5 bg-muted rounded-md border-0 outline-none text-sm"
+                  />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Prioridade */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-muted-foreground border border-gray-200 hover:bg-black/5 transition-colors">
+                <Flag className={cn("w-4 h-4", priorityInfo.color)} />
+                <span className={priorityInfo.color}>{priorityInfo.label}</span>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-48 p-1" align="start">
+              <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Prioridade da Tarefa</div>
+              {priorities.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => {
+                    handleUpdate({ priority: p.value as Task['priority'] });
+                  }}
+                  className={cn(
+                    "flex items-center justify-between w-full px-3 py-2 text-sm rounded-md transition-colors",
+                    localTask.priority === p.value ? "bg-muted" : "hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Flag className={cn("w-4 h-4", p.color)} />
+                    <span>{p.label}</span>
+                  </div>
+                  {localTask.priority === p.value && <Check className="w-4 h-4" />}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  handleUpdate({ priority: 'medium' });
+                }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-md hover:bg-muted/50 transition-colors border-t border-border mt-1"
+              >
+                <Ban className="w-4 h-4 text-muted-foreground" />
+                <span>Limpar</span>
+              </button>
+            </PopoverContent>
+          </Popover>
+
+          {/* Tags */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm text-muted-foreground border border-gray-200 hover:bg-black/5 transition-colors">
                 <TagIcon className="w-4 h-4" />
                 Tags
-              </label>
-              {task.tags && task.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {task.tags.map((tag, i) => (
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3" align="start">
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Tags (separadas por vírgula)</label>
+              <input
+                type="text"
+                value={localTask.tags?.join(', ') || ''}
+                onChange={(e) => {
+                  const tagsArray = e.target.value.split(',').map(t => t.trim()).filter(Boolean);
+                  handleUpdate({ tags: tagsArray });
+                }}
+                placeholder="design, urgente, redes sociais"
+                className="w-full px-3 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary text-sm"
+              />
+              {localTask.tags && localTask.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {localTask.tags.map((tag, i) => (
                     <span key={i} className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
                       {tag}
                     </span>
                   ))}
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* Right Column */}
-          <div className="space-y-4">
-            {/* Assignees */}
-            <div>
-              <label className="text-sm font-medium text-black mb-2 block flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Responsáveis
-              </label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button className="flex items-center gap-2">
-                    {assigneeName ? (
-                      <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-medium text-primary-foreground">
-                        {getInitials(assigneeName)}
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                        <Users className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-72 p-0" align="start">
-                  <div className="p-2 border-b border-border">
-                    <div className="flex items-center gap-2 px-2 py-1.5 bg-muted rounded-md">
-                      <Search className="w-4 h-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={assigneeSearch}
-                        onChange={(e) => setAssigneeSearch(e.target.value)}
-                        placeholder="Buscar ou digitar email..."
-                        className="flex-1 bg-transparent border-0 outline-none text-sm placeholder:text-muted-foreground"
-                      />
-                    </div>
-                  </div>
-                  <div className="p-1 max-h-64 overflow-y-auto">
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground font-medium">Responsáveis</div>
-                    <button
-                      onClick={() => {
-                        handleUpdate({ responsible_id: null });
-                        if (!isNewTask) onClose();
-                      }}
-                      className={cn(
-                        "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
-                        !task.responsible_id ? "bg-muted" : "hover:bg-muted/50"
-                      )}
-                    >
-                      <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                        <Ban className="w-4 h-4 text-gray-400" />
-                      </div>
-                      <span className="text-sm">Sem responsável</span>
-                    </button>
-                    {filteredEmployees.map(emp => (
-                      <button
-                        key={emp.id}
-                        onClick={() => {
-                          handleUpdate({ responsible_id: emp.id });
-                          if (!isNewTask) onClose();
-                        }}
-                        className={cn(
-                          "flex items-center gap-3 w-full px-2 py-2 rounded-md transition-colors",
-                          task.responsible_id === emp.id ? "bg-muted" : "hover:bg-muted/50"
-                        )}
-                      >
-                        <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-medium text-primary-foreground">
-                          {getInitials(emp.name)}
-                        </div>
-                        <span className="text-sm">{emp.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-          </div>
-        </div>
-
-        {/* Description */}
-        <div className="space-y-2">
-          <button
-            onClick={() => setDescription(description || '')}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <FileText className="w-4 h-4" />
-            {description ? 'Editar descrição' : 'Adicionar descrição'}
-          </button>
-          {description && (
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              onBlur={() => {
-                if (!isNewTask) {
-                  handleUpdate({ description });
-                }
-              }}
-              rows={4}
-              className="w-full px-3 py-2 bg-transparent border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary resize-none text-sm"
-              placeholder="Digite sua descrição..."
-            />
-          )}
+            </PopoverContent>
+          </Popover>
         </div>
 
         {/* Footer with Create Button for new tasks */}

@@ -34,6 +34,7 @@ interface SidebarProps {
   onPageChange: (page: string) => void;
   pendingApprovals: number;
   todayTasks: number;
+  availableMissions: number;
 }
 
 const menuItems = [
@@ -45,11 +46,11 @@ const menuItems = [
   { id: 'calendar', label: 'Calendário', icon: CalendarDaysIcon, iconSolid: CalendarDaysIconSolid },
   { id: 'tasks', label: 'Tarefas', icon: CheckCircleIcon, iconSolid: CheckCircleIconSolid, badge: 'todayTasks' },
   { id: 'employees', label: 'Funcionários', icon: UserCircleIcon, iconSolid: UserCircleIconSolid },
-  { id: 'missions', label: 'Missões', icon: RocketLaunchIcon, iconSolid: RocketLaunchIconSolid },
+  { id: 'missions', label: 'Missões', icon: RocketLaunchIcon, iconSolid: RocketLaunchIconSolid, badge: 'availableMissions' },
   { id: 'suggestions', label: 'Sugestões', icon: ChatBubbleLeftIcon, iconSolid: ChatBubbleLeftIconSolid },
 ];
 
-export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks }: SidebarProps) {
+export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTasks, availableMissions }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout } = useAuth();
   const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Usuário';
@@ -58,12 +59,13 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
   const badges: Record<string, number> = {
     pendingApprovals,
     todayTasks,
+    availableMissions,
   };
 
   return (
     <aside
       className={cn(
-        'h-screen sidebar-gradient flex flex-col transition-all duration-300 fixed left-0 top-0 z-40',
+        'h-screen bg-black flex flex-col transition-all duration-300 fixed left-0 top-0 z-40',
         collapsed ? 'w-16' : 'w-64'
       )}
     >
@@ -107,9 +109,9 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
               key={item.id}
               onClick={() => onPageChange(item.id)}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 relative',
+                'w-full flex items-center gap-3 px-3 py-2 rounded-sm transition-all duration-200 relative',
                 isActive
-                  ? ' bg-white/5 text-[#ffffff] '
+                  ? ' bg-blue-500 text-[#ffffff] '
                   : 'text-[#7c758b] hover:text-sidebar-foreground '
               )}
             >
@@ -118,14 +120,29 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
                 <>
                   <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
                   {badgeValue > 0 && (
-                    <span className="px-2 py-0.5 text-xs font-semibold bg-warning text-warning-foreground rounded-full">
-                      {badgeValue}
-                    </span>
+                    <>
+                      {item.id === 'missions' ? (
+                        <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                          {badgeValue}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 text-xs font-semibold bg-warning text-warning-foreground rounded-full">
+                          {badgeValue}
+                        </span>
+                      )}
+                    </>
                   )}
                 </>
               )}
               {collapsed && badgeValue > 0 && (
-                <span className="absolute right-1 top-1 w-2 h-2 bg-warning rounded-full" />
+                <span className={cn(
+                  "absolute right-1 top-1 rounded-full flex items-center justify-center",
+                  item.id === 'missions' 
+                    ? "w-5 h-5 bg-red-500 text-white text-xs font-semibold" 
+                    : "w-2 h-2 bg-warning"
+                )}>
+                  {item.id === 'missions' && badgeValue}
+                </span>
               )}
             </button>
           );
@@ -150,11 +167,6 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
           <ArrowLeftOnRectangleIcon className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="text-sm font-medium">Sair</span>}
         </button>
-        {!collapsed && (
-          <div className="text-xs text-sidebar-muted text-center mt-3">
-            © 2024 Okto Lab
-          </div>
-        )}
       </div>
     </aside>
   );

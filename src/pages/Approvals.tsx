@@ -28,12 +28,14 @@ import {
   NoSymbolIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
+import { Trash2 } from 'lucide-react';
 import { useApprovalComments, ApprovalComment, useClients, useEmployees, Employee, useContents, Content } from '@/hooks/useSupabaseData';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Modal } from '@/components/ui/modal';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -190,6 +192,7 @@ function Column({
   return (
     <div 
       ref={setNodeRef}
+      data-column-id={column.id}
       className={cn(
         "flex flex-col h-full rounded-lg border-2 transition-all duration-200",
         isOver && isDragging
@@ -221,6 +224,12 @@ function Column({
             />
           ))}
         </SortableContext>
+        {/* Área vazia para facilitar drop quando coluna está vazia */}
+        {contents.length === 0 && (
+          <div className="h-full min-h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+            Solte aqui
+          </div>
+        )}
       </div>
     </div>
   );
@@ -350,44 +359,77 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     const { active, over } = event;
     setActiveId(null);
 
-    if (!over || active.id === over.id) return;
+    if (!over) return;
 
     const activeContent = contents.find(c => c.id === active.id);
     if (!activeContent) return;
 
-    // Verificar se soltou diretamente em uma coluna
-    const overColumnId = COLUMNS.find(col => col.id === over.id)?.id;
+    let overColumnId: ColumnId | undefined;
+
+    // Estratégia 1: Verificar se soltou diretamente em uma coluna (usando o id da coluna)
+    overColumnId = COLUMNS.find(col => col.id === over.id)?.id;
+    
+    // Estratégia 2: Se não encontrou diretamente, verificar se soltou em um card dentro de uma coluna
+    if (!overColumnId) {
+      const overContent = contents.find(c => c.id === over.id);
+      if (overContent) {
+        overColumnId = contentStatusToColumn[overContent.status];
+      }
+    }
+
+    // Estratégia 3: Verificar se o over.id corresponde a alguma coluna (conversão de tipo)
+    if (!overColumnId) {
+      const columnMatch = COLUMNS.find(col => col.id === String(over.id));
+      if (columnMatch) {
+        overColumnId = columnMatch.id as ColumnId;
+      }
+    }
+
+    // Estratégia 4: Verificar se o over.data contém informação da coluna
+    if (!overColumnId && over.data?.current) {
+      const dataColumnId = (over.data.current as any)?.columnId;
+      if (dataColumnId && COLUMNS.find(col => col.id === dataColumnId)) {
+        overColumnId = dataColumnId as ColumnId;
+      }
+    }
+
+    // Se encontrou uma coluna válida
     if (overColumnId) {
       const newContentStatus = columnToContentStatus[overColumnId];
       const currentColumn = contentStatusToColumn[activeContent.status];
       
-      if (overColumnId === currentColumn) return;
+      // Se já está na mesma coluna e soltou no mesmo lugar, não fazer nada
+      if (overColumnId === currentColumn && active.id === over.id) return;
 
-      // Atualizar status do Content
-      await updateContent(activeContent.id, { status: newContentStatus });
-      
-      toast.success(`Movido para ${COLUMNS.find(c => c.id === overColumnId)?.label}`);
+      try {
+        // Atualizar status do Content
+        await updateContent(activeContent.id, { status: newContentStatus });
+        
+        toast.success(`Movido para ${COLUMNS.find(c => c.id === overColumnId)?.label}`);
+      } catch (error) {
+        console.error('Erro ao mover item:', error);
+        toast.error('Erro ao mover item');
+      }
       return;
     }
 
-    // Se soltou em outro card
+    // Fallback: Se não encontrou coluna, tentar verificar se é um card e mover para a coluna do card
     const overContent = contents.find(c => c.id === over.id);
-    if (!overContent) return;
-
-    const currentColumn = contentStatusToColumn[activeContent.status];
-    const targetColumn = contentStatusToColumn[overContent.status];
-
-    // Se o card de destino está em outra coluna, mover para essa coluna
-    if (targetColumn !== currentColumn) {
-      const newContentStatus = columnToContentStatus[targetColumn];
-      await updateContent(activeContent.id, { status: newContentStatus });
+    if (overContent && overContent.id !== activeContent.id) {
+      const targetColumn = contentStatusToColumn[overContent.status];
+      const currentColumn = contentStatusToColumn[activeContent.status];
       
-      toast.success(`Movido para ${COLUMNS.find(c => c.id === targetColumn)?.label}`);
-      return;
+      if (targetColumn !== currentColumn) {
+        const newContentStatus = columnToContentStatus[targetColumn];
+        try {
+          await updateContent(activeContent.id, { status: newContentStatus });
+          toast.success(`Movido para ${COLUMNS.find(c => c.id === targetColumn)?.label}`);
+        } catch (error) {
+          console.error('Erro ao mover item:', error);
+          toast.error('Erro ao mover item');
+        }
+      }
     }
-
-    // Reordenar na mesma coluna (opcional, já que não temos position em contents)
-    // Por enquanto, apenas atualizamos o status se necessário
   };
 
   // Criar novo card (criar um Content)
@@ -550,11 +592,17 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
             setSelectedContent(null);
           }}
           onUpdate={async (updates) => {
-            await updateContent(selectedContent.id, updates);
-            
-            // Atualizar estado local
-            setSelectedContent({ ...selectedContent, ...updates });
-            toast.success('Atualizado!');
+            try {
+              await updateContent(selectedContent.id, updates);
+              
+              // Atualizar estado local
+              setSelectedContent({ ...selectedContent, ...updates });
+              toast.success('Atualizado!');
+            } catch (error: any) {
+              console.error('Erro no onUpdate:', error);
+              const errorMessage = error?.message || error?.error?.message || 'Erro ao atualizar';
+              throw new Error(errorMessage);
+            }
           }}
           clients={clients || []}
           creativeEmployees={creativeEmployees}
@@ -821,11 +869,15 @@ function ContentDetailModal({
   // Modal de legenda expandida
   const [copyExpanded, setCopyExpanded] = useState(false);
   
+  // Estado para confirmação de exclusão de arquivo
+  const [fileToDelete, setFileToDelete] = useState<{ type: 'reference' | 'finalized'; index: number } | null>(null);
+  
   // Usar content_id para buscar comentários
   const { data: comments, create: createComment } = useApprovalComments(undefined, content.id);
   const { user } = useAuth();
   const { data: employees } = useEmployees();
   const [newComment, setNewComment] = useState('');
+  const [commentFullscreenImage, setCommentFullscreenImage] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1204,51 +1256,71 @@ function ContentDetailModal({
     } as any);
   };
 
-  const [commentImage, setCommentImage] = useState<string | null>(null);
-  const [commentImageFile, setCommentImageFile] = useState<File | null>(null);
+  const [commentFilePreview, setCommentFilePreview] = useState<string | null>(null);
+  const [commentFile, setCommentFile] = useState<File | null>(null);
   const [isSendingComment, setIsSendingComment] = useState(false);
-  const commentImageInputRef = useRef<HTMLInputElement>(null);
+  const commentFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCommentImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCommentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setCommentImageFile(file);
-      setCommentImage(URL.createObjectURL(file));
+      setCommentFile(file);
+      // Criar preview apenas para imagens e vídeos
+      if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+        setCommentFilePreview(URL.createObjectURL(file));
+      } else {
+        setCommentFilePreview(null);
+      }
     }
   };
 
-  const removeCommentImage = () => {
-    if (commentImage) {
-      URL.revokeObjectURL(commentImage);
+  const removeCommentFile = () => {
+    if (commentFilePreview) {
+      URL.revokeObjectURL(commentFilePreview);
     }
-    setCommentImage(null);
-    setCommentImageFile(null);
-    if (commentImageInputRef.current) {
-      commentImageInputRef.current.value = '';
+    setCommentFilePreview(null);
+    setCommentFile(null);
+    if (commentFileInputRef.current) {
+      commentFileInputRef.current.value = '';
     }
+  };
+
+  const getFileIcon = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext || '')) return '📷';
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext || '')) return '🎬';
+    if (['pdf'].includes(ext || '')) return '📄';
+    if (['doc', 'docx'].includes(ext || '')) return '📝';
+    if (['xls', 'xlsx'].includes(ext || '')) return '📊';
+    if (['ppt', 'pptx'].includes(ext || '')) return '📑';
+    if (['zip', 'rar', '7z'].includes(ext || '')) return '📦';
+    return '📎';
   };
 
   const handleSendComment = async () => {
-    if (!newComment.trim() && !commentImageFile) return;
+    if (!newComment.trim() && !commentFile) return;
 
     setIsSendingComment(true);
     try {
-      let imageUrl: string | undefined;
+      let fileUrl: string | undefined;
+      let defaultMessage = '';
       
-      // Upload da imagem se houver
-      if (commentImageFile) {
-        imageUrl = await uploadFile(commentImageFile, `comments/${content.id}`) || undefined;
+      // Upload do arquivo se houver
+      if (commentFile) {
+        fileUrl = await uploadFile(commentFile, `comments/${content.id}`) || undefined;
+        const icon = getFileIcon(commentFile.name);
+        defaultMessage = `${icon} ${commentFile.name}`;
       }
 
       await createComment({
         content_id: content.id,
         user_id: user?.id,
-        message: newComment.trim() || (imageUrl ? '📷 Imagem' : ''),
-        image: imageUrl,
+        message: newComment.trim() || defaultMessage,
+        image: fileUrl,
       } as any);
       
       setNewComment('');
-      removeCommentImage();
+      removeCommentFile();
     } catch (error) {
       console.error('Erro ao enviar comentário:', error);
       toast.error('Erro ao enviar comentário');
@@ -1295,11 +1367,36 @@ function ContentDetailModal({
         link.click();
         document.body.removeChild(link);
       } else {
-        window.open(url, '_blank');
+        // Para URLs do Supabase Storage, fazer download direto
+        const response = await fetch(url);
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(blobUrl);
       }
     } catch (error) {
       console.error('Erro ao baixar arquivo:', error);
       toast.error('Erro ao baixar arquivo');
+    }
+  };
+
+  const handleConfirmDeleteFile = async () => {
+    if (!fileToDelete) return;
+
+    try {
+      if (fileToDelete.type === 'reference') {
+        await removeFile(fileToDelete.index);
+      } else {
+        await removeContentFile(fileToDelete.index);
+      }
+      setFileToDelete(null);
+    } catch (error) {
+      console.error('Erro ao excluir arquivo:', error);
     }
   };
 
@@ -1311,29 +1408,34 @@ function ContentDetailModal({
         className="absolute inset-0 bg-foreground/20 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative w-full max-w-[1400px] bg-card rounded-2xl shadow-xl border border-border animate-scale-in overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-start justify-between p-8 pb-2">
-          <div className="flex items-center gap-8">
-            <h1 className="text-4xl font-bold">
-              {title}
-            </h1>
-            <span className="px-4 py-2 rounded-full bg-purple-100 text-purple-700 text-sm font-medium whitespace-nowrap">
-              {clientId ? clients.find(c => c.id === clientId)?.name || 'Sem cliente' : 'Sem cliente'}
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-muted transition-colors"
-          >
-            <XMarkIcon className="w-5 h-5 text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* Main Content */}
+      <div className="relative w-full max-w-[1400px] bg-card rounded-2xl shadow-xl border border-border animate-scale-in overflow-hidden flex max-h-[90vh]">
+        {/* Main Content - Two Columns */}
         <div className="flex flex-1 overflow-hidden">
           {/* Coluna Esquerda */}
           <div className="flex-1 p-8 overflow-y-auto">
+            {/* Header dentro da coluna esquerda */}
+            <div className="flex items-center gap-4 mb-6">
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={async () => {
+                  if (title !== content.title) {
+                    await onUpdate({ title });
+                  }
+                }}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  }
+                }}
+                className="text-3xl font-bold bg-transparent border-0 outline-none focus:ring-0 p-0 w-auto min-w-[100px] hover:bg-muted/30 focus:bg-muted/30 rounded px-2 -mx-2 transition-colors"
+                style={{ width: `${Math.max(title.length * 18, 100)}px` }}
+              />
+              <span className="px-4 py-2 rounded-full bg-purple-100 text-purple-700 text-sm font-medium whitespace-nowrap">
+                {clientId ? clients.find(c => c.id === clientId)?.name || 'Sem cliente' : 'Sem cliente'}
+              </span>
+            </div>
             <div className="space-y-6">
               {/* Info Bar */}
               <div className="flex items-end gap-8 flex-wrap pb-6 border-b border-border">
@@ -1359,9 +1461,18 @@ function ContentDetailModal({
                 {/* Status */}
                 <div className="flex flex-col">
                   <span className="text-xs text-muted-foreground block mb-2">Status</span>
-                  <Select value={status} onValueChange={(value: Content['status']) => {
-                    setStatus(value);
-                    onUpdate({ status: value });
+                  <Select value={status} onValueChange={async (value: Content['status']) => {
+                    try {
+                      setStatus(value);
+                      await onUpdate({ status: value });
+                      toast.success(`Status alterado para ${getStatusInfo(value).label}`);
+                    } catch (error: any) {
+                      console.error('Erro ao alterar status:', error);
+                      const errorMessage = error?.message || error?.error?.message || 'Erro desconhecido ao alterar status';
+                      toast.error(`Erro ao alterar status: ${errorMessage}`);
+                      // Reverter o estado em caso de erro
+                      setStatus(content.status);
+                    }
                   }}>
                     <SelectTrigger className={cn(
                       "font-medium border-0 h-[28px]  px-3 focus:ring-0 min-w-[120px] rounded-full flex items-center justify-center",
@@ -1607,16 +1718,21 @@ function ContentDetailModal({
                               </div>
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button
-                                  onClick={() => window.open(file, '_blank')}
+                                  onClick={() => {
+                                    const filename = file.split('/').pop()?.split('?')[0] || `Arquivo ${index + 1}`;
+                                    downloadFile(file, filename);
+                                  }}
                                   className="p-1 hover:bg-background rounded"
+                                  title="Baixar arquivo"
                                 >
-                                  <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                  <ArrowDownTrayIcon className="w-4 h-4" />
                                 </button>
                                 <button
-                                  onClick={() => removeFile(index)}
-                                  className="p-1 hover:bg-background rounded"
+                                  onClick={() => setFileToDelete({ type: 'reference', index })}
+                                  className="p-1 hover:bg-destructive/10 hover:text-destructive rounded transition-colors"
+                                  title="Excluir arquivo"
                                 >
-                                  <EllipsisVerticalIcon className="w-4 h-4" />
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
@@ -1730,16 +1846,21 @@ function ContentDetailModal({
                               </div>
                               <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button
-                                  onClick={() => window.open(file, '_blank')}
+                                  onClick={() => {
+                                    const filename = file.split('/').pop()?.split('?')[0] || `Arquivo ${index + 1}`;
+                                    downloadFile(file, filename);
+                                  }}
                                   className="p-1 hover:bg-background rounded"
+                                  title="Baixar arquivo"
                                 >
-                                  <ArrowTopRightOnSquareIcon className="w-4 h-4" />
+                                  <ArrowDownTrayIcon className="w-4 h-4" />
                                 </button>
                                 <button
-                                  onClick={() => removeContentFile(index)}
-                                  className="p-1 hover:bg-background rounded"
+                                  onClick={() => setFileToDelete({ type: 'finalized', index })}
+                                  className="p-1 hover:bg-destructive/10 hover:text-destructive rounded transition-colors"
+                                  title="Excluir arquivo"
                                 >
-                                  <EllipsisVerticalIcon className="w-4 h-4" />
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
@@ -1795,57 +1916,110 @@ function ContentDetailModal({
           </div>
 
           {/* Coluna Direita - Comentários */}
-          <div className="w-[400px] border-l border-border flex flex-col">
-            <div className="p-6 border-b border-border">
+          <div className="w-[480px] flex flex-col bg-[#F1F1F1] flex-shrink-0">
+            <div className="p-6 flex items-center justify-between">
               <h3 className="font-semibold">Comentários</h3>
+              <button
+                onClick={onClose}
+                className="p-1 rounded-lg hover:bg-black/10 transition-colors"
+              >
+                <XMarkIcon className="w-5 h-5 text-muted-foreground" />
+              </button>
             </div>
 
             {/* Lista de Comentários */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {comments?.map(comment => (
-                <div key={comment.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center text-sm font-bold">
-                      {getUserName(comment.user_id)?.charAt(0).toUpperCase()}
+                <div key={comment.id} className="bg-white rounded-xl p-4 shadow-sm">
+                  {/* Header do comentário */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                      {getUserName(comment.user_id)?.substring(0, 2).toUpperCase()}
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold">{getUserName(comment.user_id)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {format(new Date(comment.created_at), "dd 'de' MMM. 'de' yyyy, HH:mm", { locale: ptBR })}
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground">{getUserName(comment.user_id)}</span>
+                      <span className="text-sm text-muted-foreground">
+                        {format(new Date(comment.created_at), "dd 'de' MMM. yyyy, HH:mm", { locale: ptBR })}
+                      </span>
                     </div>
                   </div>
                   
-                  {comment.message && comment.message !== '📷 Imagem' && (
-                    <p className="text-sm text-foreground pl-10">{comment.message}</p>
+                  {/* Mensagem */}
+                  {comment.message && !comment.message.startsWith('📷') && !comment.message.startsWith('🎬') && !comment.message.startsWith('📄') && !comment.message.startsWith('📝') && !comment.message.startsWith('📊') && !comment.message.startsWith('📑') && !comment.message.startsWith('📦') && !comment.message.startsWith('📎') && (
+                    <p className="text-foreground mb-3">{comment.message}</p>
                   )}
                   
+                  {/* Arquivo anexado */}
                   {comment.image && (
-                    <div className="pl-10">
-                      <img
-                        src={comment.image}
-                        alt="Anexo"
-                        className="max-w-full max-h-48 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                        onClick={() => window.open(comment.image, '_blank')}
-                      />
+                    <div className="mb-3">
+                      {isImage(comment.image) ? (
+                        <>
+                          <img
+                            src={comment.image}
+                            alt="Anexo"
+                            className="max-w-[320px] max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => setCommentFullscreenImage(comment.image)}
+                          />
+                          <p className="text-xs text-muted-foreground mt-1 truncate max-w-[320px]">
+                            {comment.image.split('/').pop()?.split('?')[0]?.substring(0, 50)}...
+                          </p>
+                        </>
+                      ) : isVideo(comment.image) ? (
+                        <>
+                          <video
+                            src={comment.image}
+                            controls
+                            className="max-w-[320px] max-h-64 rounded-lg"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1 truncate max-w-[320px]">
+                            {comment.image.split('/').pop()?.split('?')[0]?.substring(0, 50)}...
+                          </p>
+                        </>
+                      ) : (
+                        <a
+                          href={comment.image}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 bg-white rounded-lg hover:bg-gray-50 transition-colors max-w-[320px]"
+                        >
+                          <span className="text-2xl">{getFileIcon(comment.image)}</span>
+                          <span className="text-sm text-foreground truncate flex-1">
+                            {comment.image.split('/').pop()?.split('?')[0]?.substring(0, 40)}...
+                          </span>
+                          <ArrowTopRightOnSquareIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                        </a>
+                      )}
                     </div>
                   )}
+                  
                 </div>
               ))}
               <div ref={chatEndRef} />
             </div>
 
             {/* Input de Comentário */}
-            <div className="p-6 border-t border-border space-y-3">
-              {commentImage && (
-                <div className="relative inline-block">
-                  <img
-                    src={commentImage}
-                    alt="Preview"
-                    className="h-20 w-auto rounded-lg border border-border"
-                  />
+            <div className="p-4">
+              {commentFile && (
+                <div className="relative inline-block mb-3">
+                  {commentFilePreview && commentFile.type.startsWith('image/') ? (
+                    <img
+                      src={commentFilePreview}
+                      alt="Preview"
+                      className="h-20 w-auto rounded-lg"
+                    />
+                  ) : commentFilePreview && commentFile.type.startsWith('video/') ? (
+                    <video
+                      src={commentFilePreview}
+                      className="h-20 w-auto rounded-lg"
+                    />
+                  ) : (
+                    <div className="h-20 px-4 bg-white rounded-lg flex items-center gap-3">
+                      <span className="text-2xl">{getFileIcon(commentFile.name)}</span>
+                      <span className="text-sm text-foreground max-w-[150px] truncate">{commentFile.name}</span>
+                    </div>
+                  )}
                   <button
-                    onClick={removeCommentImage}
+                    onClick={removeCommentFile}
                     className="absolute -top-2 -right-2 p-1 bg-destructive text-destructive-foreground rounded-full hover:bg-destructive/90"
                   >
                     <XMarkIcon className="w-3 h-3" />
@@ -1853,21 +2027,22 @@ function ContentDetailModal({
                 </div>
               )}
 
-              <div className="flex items-center gap-2">
+              <div className="bg-white rounded-full px-4 py-3 flex items-center gap-3 shadow-sm">
                 <input
-                  ref={commentImageInputRef}
+                  ref={commentFileInputRef}
                   type="file"
-                  accept="image/*"
-                  onChange={handleCommentImageChange}
+                  onChange={handleCommentFileChange}
                   className="hidden"
                 />
                 
                 <button
-                  onClick={() => commentImageInputRef.current?.click()}
-                  className="p-2 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
-                  title="Anexar imagem"
+                  onClick={() => commentFileInputRef.current?.click()}
+                  className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors flex-shrink-0"
+                  title="Anexar arquivo"
                 >
-                  <PhotoIcon className="w-5 h-5 text-muted-foreground" />
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
                 </button>
 
                 <input
@@ -1876,18 +2051,20 @@ function ContentDetailModal({
                   onChange={(e) => setNewComment(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendComment()}
                   placeholder="Escrever um comentário..."
-                  className="flex-1 px-4 py-2 bg-muted rounded-lg border-0 outline-none focus:ring-2 focus:ring-primary/20 text-sm"
+                  className="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted-foreground"
                 />
 
                 <button
                   onClick={handleSendComment}
-                  disabled={isSendingComment || (!newComment.trim() && !commentImageFile)}
-                  className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isSendingComment || (!newComment.trim() && !commentFile)}
+                  className="w-8 h-8 rounded-full bg-black flex items-center justify-center hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                 >
                   {isSendingComment ? (
-                    <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                    <ArrowPathIcon className="w-4 h-4 text-white animate-spin" />
                   ) : (
-                    <PaperAirplaneIcon className="w-5 h-5" />
+                    <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                    </svg>
                   )}
                 </button>
               </div>
@@ -1917,6 +2094,37 @@ function ContentDetailModal({
             isImage={isImage}
             isVideo={isVideo}
           />
+        )}
+
+        {/* Modal de Tela Cheia para Arquivo do Comentário */}
+        {commentFullscreenImage && (
+          <div 
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90"
+            onClick={() => setCommentFullscreenImage(null)}
+          >
+            <button
+              onClick={() => setCommentFullscreenImage(null)}
+              className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
+            >
+              <XMarkIcon className="w-6 h-6 text-white" />
+            </button>
+            {isVideo(commentFullscreenImage) ? (
+              <video
+                src={commentFullscreenImage}
+                controls
+                autoPlay
+                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <img
+                src={commentFullscreenImage}
+                alt="Imagem em tela cheia"
+                className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+          </div>
         )}
 
         {/* Modal de Briefing Expandido */}
@@ -2004,6 +2212,27 @@ function ContentDetailModal({
             </div>
           </div>
         )}
+
+        {/* AlertDialog para confirmação de exclusão de arquivo */}
+        <AlertDialog open={!!fileToDelete} onOpenChange={(open) => !open && setFileToDelete(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir este arquivo? Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => setFileToDelete(null)}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDeleteFile}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );

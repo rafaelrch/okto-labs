@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { Plus, Target, Trophy, Coins, Clock, CheckCircle2, User, Zap, Award, AlertTriangle, Calendar } from 'lucide-react';
+import { Plus, Target, Trophy, Coins, Clock, CheckCircle2, User, Zap, Award, AlertTriangle, Calendar, Trash2 } from 'lucide-react';
 import { useMissions, useEmployees, type Mission } from '@/hooks/useSupabaseData';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -34,7 +34,7 @@ const statusConfig = {
 };
 
 export function MissionsPage({ searchQuery }: MissionsPageProps) {
-  const { data: missions, loading, create, update } = useMissions();
+  const { data: missions, loading, create, update, remove } = useMissions();
   const { data: employees } = useEmployees();
   const { user } = useAuth();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -174,6 +174,23 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
     }
   };
 
+  const handleDeleteMission = async (mission: Mission) => {
+    if (!user?.id) {
+      toast.error('Você precisa estar logado para deletar missões');
+      return;
+    }
+    
+    try {
+      console.log('Deletando missão:', mission.id);
+      await remove(mission.id);
+      console.log('Missão deletada com sucesso do banco');
+      toast.success(`Missão "${mission.title}" deletada com sucesso!`);
+    } catch (error: any) {
+      console.error('Erro ao deletar missão:', error);
+      toast.error(`Erro ao deletar missão: ${error?.message || 'Erro desconhecido'}`);
+    }
+  };
+
   const getAssigneeName = (assignedTo?: string) => {
     if (!assignedTo) return null;
     // Buscar funcionário pelo user_id (ID do auth)
@@ -199,29 +216,36 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
 
     return (
       <Card className={cn(
-        'group hover:shadow-lg transition-all duration-300 border-2',
+        'group hover:shadow-lg transition-all duration-300 border-2 overflow-hidden',
         mission.status === 'available' && 'border-primary/20 hover:border-primary/40',
         mission.status === 'in_progress' && 'border-warning/30',
         mission.status === 'completed' && 'border-success/30',
         mission.status === 'expired' && 'border-destructive/30 opacity-75'
       )}>
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
+        <CardContent className="p-3">
+          <div className="flex flex-col gap-3">
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <StatusIcon className="w-4 h-4 text-muted-foreground" />
-                <h3 className="font-semibold text-foreground truncate">{mission.title}</h3>
+                <StatusIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <h3 className="font-semibold text-foreground text-sm truncate flex-1">{mission.title}</h3>
+                <button
+                  onClick={() => handleDeleteMission(mission)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                  title="Deletar missão"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
               {mission.description && (
-                <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
                   {mission.description}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className={priorityConfig[mission.priority].color}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge className={cn(priorityConfig[mission.priority].color, "text-xs px-2 py-0.5")}>
                   {priorityConfig[mission.priority].label}
                 </Badge>
-                <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0">
+                <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 text-xs px-2 py-0.5">
                   <Coins className="w-3 h-3 mr-1" />
                   {mission.points} pts
                 </Badge>
@@ -229,7 +253,7 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
                   <Badge 
                     variant="outline" 
                     className={cn(
-                      "text-xs",
+                      "text-xs px-2 py-0.5",
                       timeRemaining.isExpired ? "border-destructive text-destructive" : "border-muted-foreground"
                     )}
                   >
@@ -237,23 +261,25 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
                     {timeRemaining.text}
                   </Badge>
                 )}
-                {mission.assigned_to && (
-                  <Badge variant="outline" className="text-xs">
+              </div>
+              {mission.assigned_to && (
+                <div className="mt-2">
+                  <Badge variant="outline" className="text-xs px-2 py-0.5">
                     <User className="w-3 h-3 mr-1" />
                     {getAssigneeName(mission.assigned_to)}
                   </Badge>
-                )}
-              </div>
+                </div>
+              )}
             </div>
             {showActions && mission.status !== 'expired' && (
-              <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
                 {mission.status === 'available' && (
                   <Button
                     size="sm"
                     onClick={() => handleClaimMission(mission)}
-                    className="btn-primary-gradient"
+                    className="btn-primary-gradient text-xs h-8"
                   >
-                    <Zap className="w-4 h-4 mr-1" />
+                    <Zap className="w-3.5 h-3.5 mr-1" />
                     Aceitar
                   </Button>
                 )}
@@ -262,9 +288,9 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
                     size="sm"
                     variant="outline"
                     onClick={() => handleCompleteMission(mission)}
-                    className="border-success text-success hover:bg-success/10"
+                    className="border-success text-success hover:bg-success hover:text-white hover:border-success text-xs h-8"
                   >
-                    <CheckCircle2 className="w-4 h-4 mr-1" />
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
                     Concluir
                   </Button>
                 )}
@@ -278,13 +304,13 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
 
   const LeaderboardCard = () => (
     <Card className="border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-orange-500/5 h-fit sticky top-6">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Trophy className="w-5 h-5 text-amber-500" />
+      <CardHeader className="pb-3 px-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Trophy className="w-5 h-5 text-amber-500 flex-shrink-0" />
           Ranking
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-3">
         {leaderboard.length === 0 ? (
           <p className="text-muted-foreground text-center py-4 text-sm">
             Nenhum ponto ainda
@@ -295,25 +321,25 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
               <div
                 key={emp.id}
                 className={cn(
-                  'flex items-center gap-3 p-2 rounded-lg',
+                  'flex items-center gap-2 p-2 rounded-lg',
                   index === 0 && 'bg-amber-500/10 border border-amber-500/30',
                   index === 1 && 'bg-gray-300/10 border border-gray-300/30',
                   index === 2 && 'bg-orange-700/10 border border-orange-700/30',
                   index > 2 && 'bg-muted/50'
                 )}
               >
-                <div className="w-6 h-6 rounded-full flex items-center justify-center">
-                  {index === 0 && <Award className="w-5 h-5 text-amber-500" />}
-                  {index === 1 && <Award className="w-5 h-5 text-gray-400" />}
-                  {index === 2 && <Award className="w-5 h-5 text-orange-700" />}
+                <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">
+                  {index === 0 && <Award className="w-4 h-4 text-amber-500" />}
+                  {index === 1 && <Award className="w-4 h-4 text-gray-400" />}
+                  {index === 2 && <Award className="w-4 h-4 text-orange-700" />}
                   {index > 2 && <span className="text-xs text-muted-foreground">{index + 1}º</span>}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-foreground text-sm truncate">{emp.name}</p>
+                  <p className="font-medium text-foreground text-xs truncate">{emp.name}</p>
                   <p className="text-xs text-muted-foreground">{emp.completedCount} missões</p>
                 </div>
-                <div className="text-right">
-                  <p className="font-bold text-amber-500">{emp.totalPoints}</p>
+                <div className="text-right flex-shrink-0">
+                  <p className="font-bold text-amber-500 text-sm">{emp.totalPoints}</p>
                 </div>
               </div>
             ))}
@@ -332,14 +358,14 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_240px] gap-6 min-w-0 overflow-hidden">
       {/* Sidebar Leaderboard - Mobile */}
       <div className="lg:hidden">
         <LeaderboardCard />
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 space-y-6">
+      <div className="min-w-0 space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -380,6 +406,7 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
                     type="datetime-local"
                     value={formData.deadline}
                     onChange={(e) => setFormData(prev => ({ ...prev, deadline: e.target.value }))}
+                    className="[&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-100 [&::-webkit-calendar-picker-indicator]:brightness-0"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -420,20 +447,20 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
 
 
         {/* Mission Lists - Kanban Board */}
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
           {/* Available */}
-          <div className="flex-shrink-0 w-72 space-y-4">
-            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
-              <Target className="w-5 h-5 text-primary" />
-              <h2 className="font-semibold text-foreground">Disponíveis</h2>
+          <div className="min-w-0 space-y-4">
+            <div className="flex items-center gap-2 pb-2">
+              <Target className="w-5 h-5 text-primary flex-shrink-0" />
+              <h2 className="font-semibold text-foreground truncate">Disponíveis</h2>
               <Badge variant="outline">{availableMissions.length}</Badge>
             </div>
             <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {availableMissions.length === 0 ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-6 text-center text-muted-foreground">
+                  <CardContent className="p-4 text-center text-muted-foreground">
                     <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p>Nenhuma missão disponível</p>
+                    <p className="text-sm">Nenhuma missão disponível</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -445,18 +472,18 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* In Progress */}
-          <div className="flex-shrink-0 w-72 space-y-4">
-            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
-              <Clock className="w-5 h-5 text-warning" />
-              <h2 className="font-semibold text-foreground">Em Andamento</h2>
+          <div className="min-w-0 space-y-4">
+            <div className="flex items-center gap-2 pb-2">
+              <Clock className="w-5 h-5 text-warning flex-shrink-0" />
+              <h2 className="font-semibold text-foreground truncate">Em Andamento</h2>
               <Badge variant="outline">{inProgressMissions.length}</Badge>
             </div>
             <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {inProgressMissions.length === 0 ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-6 text-center text-muted-foreground">
+                  <CardContent className="p-4 text-center text-muted-foreground">
                     <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p>Nenhuma missão em andamento</p>
+                    <p className="text-sm">Nenhuma missão em andamento</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -468,18 +495,18 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* Completed */}
-          <div className="flex-shrink-0 w-72 space-y-4">
-            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
-              <CheckCircle2 className="w-5 h-5 text-success" />
-              <h2 className="font-semibold text-foreground">Concluídas</h2>
+          <div className="min-w-0 space-y-4">
+            <div className="flex items-center gap-2 pb-2">
+              <CheckCircle2 className="w-5 h-5 text-success flex-shrink-0" />
+              <h2 className="font-semibold text-foreground truncate">Concluídas</h2>
               <Badge variant="outline">{completedMissions.length}</Badge>
             </div>
             <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {completedMissions.length === 0 ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-6 text-center text-muted-foreground">
+                  <CardContent className="p-4 text-center text-muted-foreground">
                     <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p>Nenhuma missão concluída</p>
+                    <p className="text-sm">Nenhuma missão concluída</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -491,18 +518,18 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
           </div>
 
           {/* Expired */}
-          <div className="flex-shrink-0 w-72 space-y-4">
-            <div className="flex items-center gap-2 sticky top-0 bg-background z-10 pb-2">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
-              <h2 className="font-semibold text-foreground">Expiradas</h2>
+          <div className="min-w-0 space-y-4">
+            <div className="flex items-center gap-2 pb-2">
+              <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
+              <h2 className="font-semibold text-foreground truncate">Expiradas</h2>
               <Badge variant="outline">{expiredMissions.length}</Badge>
             </div>
             <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
               {expiredMissions.length === 0 ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-6 text-center text-muted-foreground">
+                  <CardContent className="p-4 text-center text-muted-foreground">
                     <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p>Nenhuma missão expirada</p>
+                    <p className="text-sm">Nenhuma missão expirada</p>
                   </CardContent>
                 </Card>
               ) : (
