@@ -15,6 +15,24 @@ import { cn } from '@/lib/utils';
 import { format, isPast, formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+// Helper para parsear datas corretamente (evita problema de timezone)
+const parseLocalDate = (dateString: string): Date => {
+  // Se for datetime-local (ex: "2024-01-22T10:00")
+  if (dateString.includes('T') && !dateString.includes('Z') && !dateString.includes('+')) {
+    const [datePart, timePart] = dateString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = (timePart || '00:00').split(':').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+  }
+  // Se for apenas data (ex: "2024-01-22")
+  if (dateString.length === 10 && dateString.includes('-')) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  // Fallback para outros formatos (ISO com timezone, etc)
+  return new Date(dateString);
+};
+
 interface MissionsPageProps {
   searchQuery: string;
 }
@@ -49,12 +67,11 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   // Verificar missões expiradas automaticamente
   useEffect(() => {
     const checkExpiredMissions = async () => {
-      const now = new Date();
       for (const mission of missions) {
         if (
           (mission.status === 'available' || mission.status === 'in_progress') &&
           mission.deadline &&
-          isPast(new Date(mission.deadline))
+          isPast(parseLocalDate(mission.deadline))
         ) {
           await update(mission.id, { status: 'expired' });
         }
@@ -199,7 +216,7 @@ export function MissionsPage({ searchQuery }: MissionsPageProps) {
   };
 
   const getTimeRemaining = (deadline: string) => {
-    const deadlineDate = new Date(deadline);
+    const deadlineDate = parseLocalDate(deadline);
     if (isPast(deadlineDate)) {
       return { text: 'Expirado', isExpired: true };
     }
