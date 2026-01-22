@@ -1,6 +1,23 @@
 import { supabase } from '@/integrations/supabase/client';
 
 const BUCKET_NAME = 'approvals';
+const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+
+// Tipos MIME permitidos
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/jpg', 
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  'video/mpeg',
+  'video/x-msvideo',
+  'video/x-m4v',
+  'application/pdf',
+];
 
 /**
  * Upload de arquivo para o Supabase Storage
@@ -10,32 +27,68 @@ const BUCKET_NAME = 'approvals';
  */
 export async function uploadFile(file: File, folder: string): Promise<string | null> {
   try {
-    // Gerar nome único para o arquivo
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${folder}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    // Log detalhado do arquivo
+    console.log('[Storage] Iniciando upload:', {
+      name: file.name,
+      type: file.type,
+      size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+    });
+
+    // Verificar tamanho do arquivo
+    if (file.size > MAX_FILE_SIZE) {
+      console.error(`[Storage] Arquivo muito grande: ${(file.size / 1024 / 1024).toFixed(2)} MB (máximo: 100MB)`);
+      throw new Error(`Arquivo muito grande (${(file.size / 1024 / 1024).toFixed(2)} MB). Máximo permitido: 100MB`);
+    }
+
+    // Verificar tipo do arquivo (aceitar qualquer imagem/vídeo se MIME não estiver na lista)
+    const isImage = file.type.startsWith('image/');
+    const isVideo = file.type.startsWith('video/');
+    const isPdf = file.type === 'application/pdf';
+    
+    if (!isImage && !isVideo && !isPdf) {
+      console.error(`[Storage] Tipo de arquivo não permitido: ${file.type}`);
+      throw new Error(`Tipo de arquivo não permitido: ${file.type}. Use imagens, vídeos ou PDFs.`);
+    }
+
+    // Gerar nome único para o arquivo (sanitizar nome)
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'bin';
+    const sanitizedName = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 9);
+    const fileName = `${folder}/${sanitizedName}.${fileExt}`;
+
+    console.log('[Storage] Fazendo upload para:', fileName);
 
     // Upload do arquivo
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(fileName, file, {
         cacheControl: '3600',
-        upsert: false,
+        upsert: true, // Permitir sobrescrever se existir
+        contentType: file.type, // Especificar o content-type
       });
 
     if (error) {
-      console.error('Erro no upload:', error);
-      return null;
+      console.error('[Storage] Erro no upload:', {
+        message: error.message,
+        name: error.name,
+        error: error,
+      });
+      throw new Error(`Erro no upload: ${error.message}`);
     }
+
+    console.log('[Storage] Upload bem sucedido:', data.path);
 
     // Obter URL pública
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)
       .getPublicUrl(data.path);
 
+    console.log('[Storage] URL pública:', urlData.publicUrl);
+
     return urlData.publicUrl;
   } catch (error) {
-    console.error('Erro ao fazer upload:', error);
-    return null;
+    console.error('[Storage] Erro ao fazer upload:', error);
+    // Re-throw para que o chamador possa tratar
+    throw error;
   }
 }
 

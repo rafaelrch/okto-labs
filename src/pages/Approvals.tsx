@@ -1030,7 +1030,8 @@ function ContentDetailModal({
     // Validar tamanho dos arquivos (100MB por arquivo)
     const invalidFiles = selectedFiles.filter(file => file.size > 100 * 1024 * 1024);
     if (invalidFiles.length > 0) {
-      toast.error(`${invalidFiles.length} arquivo(s) excedem o limite de 100MB`);
+      const fileNames = invalidFiles.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(1)}MB)`).join(', ');
+      toast.error(`Arquivo(s) muito grande(s) - máximo 100MB: ${fileNames}`);
       if (contentFileInputRef.current) {
         contentFileInputRef.current.value = '';
       }
@@ -1043,20 +1044,21 @@ function ContentDetailModal({
       toast.loading('Enviando arquivos...', { id: 'upload-finalized' });
       
       // Fazer upload de cada arquivo para o Supabase Storage
-      const uploadPromises = selectedFiles.map(async (file) => {
+      const uploadResults: { file: string; url: string | null; error?: string }[] = [];
+      
+      for (const file of selectedFiles) {
         try {
+          console.log(`[Upload] Iniciando upload de: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB)`);
           const url = await uploadFile(file, `contents/${content.id}/finalized`);
-          if (!url) {
-            console.error(`Falha no upload do arquivo: ${file.name}`);
-          }
-          return { file: file.name, url };
+          uploadResults.push({ file: file.name, url });
+          console.log(`[Upload] Sucesso: ${file.name}`);
         } catch (error) {
-          console.error('Erro ao fazer upload do arquivo:', file.name, error);
-          return { file: file.name, url: null };
+          const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido';
+          console.error(`[Upload] Erro em ${file.name}:`, errorMsg);
+          uploadResults.push({ file: file.name, url: null, error: errorMsg });
         }
-      });
+      }
 
-      const uploadResults = await Promise.all(uploadPromises);
       const successfulUrls = uploadResults
         .filter((result): result is { file: string; url: string } => result.url !== null)
         .map(result => result.url);
@@ -1074,18 +1076,16 @@ function ContentDetailModal({
       }
 
       if (failedFiles.length > 0) {
-        const failedNames = failedFiles.map(f => f.file).join(', ');
-        toast.error(`Falha no upload de ${failedFiles.length} arquivo(s): ${failedNames}`);
-      }
-
-      if (successfulUrls.length === 0 && failedFiles.length > 0) {
-        toast.error('Nenhum arquivo foi enviado com sucesso. Verifique as permissões do bucket e o console para mais detalhes.');
+        // Mostrar erro detalhado de cada arquivo que falhou
+        failedFiles.forEach(f => {
+          toast.error(`Falha em "${f.file}": ${f.error || 'Verifique o console'}`);
+        });
       }
     } catch (error) {
-      console.error('Erro no upload:', error);
+      console.error('[Upload] Erro geral:', error);
       toast.dismiss('upload-finalized');
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-      toast.error(`Erro ao fazer upload dos arquivos: ${errorMessage}`);
+      toast.error(`Erro ao fazer upload: ${errorMessage}`);
     } finally {
       setIsUploadingContentFiles(false);
       if (contentFileInputRef.current) {
