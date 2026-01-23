@@ -137,9 +137,22 @@ export default function Auth() {
       });
 
       if (error) {
+        console.error('[Auth] Erro no cadastro:', error);
         let message = 'Ocorreu um erro ao criar a conta.';
-        if (error.message.includes('already registered')) {
+        
+        if (error.message.includes('already registered') || error.message.includes('already been registered')) {
           message = 'Este email já está cadastrado. Tente fazer login.';
+        } else if (error.message.includes('Password should be at least')) {
+          message = 'A senha deve ter pelo menos 6 caracteres.';
+        } else if (error.message.includes('Invalid email')) {
+          message = 'Email inválido.';
+        } else if (error.message.includes('Signups not allowed')) {
+          message = 'Cadastros estão desabilitados. Contate o administrador.';
+        } else if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
+          message = 'Muitas tentativas. Aguarde alguns minutos e tente novamente.';
+        } else {
+          // Mostrar erro real para debug
+          message = `Erro: ${error.message}`;
         }
         
         toast({
@@ -181,10 +194,11 @@ export default function Auth() {
           });
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[Auth] Erro geral no cadastro:', error);
       toast({
         title: 'Erro',
-        description: 'Ocorreu um erro ao criar a conta.',
+        description: error?.message || 'Ocorreu um erro ao criar a conta.',
         variant: 'destructive',
       });
     } finally {
