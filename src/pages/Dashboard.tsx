@@ -316,6 +316,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     last7Days: 'Últimos 7 Dias',
   };
 
+  // Filtro padrão: hoje
+  // Permite visualizar dados de diferentes períodos temporais
+
   return (
     <div className="space-y-6">
       {/* Filtro de Data */}
