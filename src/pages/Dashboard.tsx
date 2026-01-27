@@ -19,7 +19,7 @@ import {
 import { useClients, useContents, useTasks, useEmployees, useMissions, Task, Content } from '@/hooks/useSupabaseData';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { format, subDays, startOfDay, parseISO } from 'date-fns';
+import { format, subDays, startOfDay, parseISO, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addWeeks, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
@@ -52,6 +52,71 @@ import {
 const parseLocalDate = (dateStr: string): Date => {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day);
+};
+
+// Tipos de filtro de data
+type DateFilterType = 'today' | 'thisWeek' | 'nextWeek' | 'thisMonth' | 'nextMonth' | 'thisYear' | 'last7Days';
+
+// Helper para calcular período baseado no filtro
+const getDateRange = (filter: DateFilterType): { startDate: string; endDate: string } => {
+  const now = new Date();
+  const today = startOfDay(now);
+  
+  switch (filter) {
+    case 'today': {
+      const start = format(today, 'yyyy-MM-dd');
+      return { startDate: start, endDate: start };
+    }
+    case 'thisWeek': {
+      const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Segunda-feira
+      const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+      return {
+        startDate: format(weekStart, 'yyyy-MM-dd'),
+        endDate: format(weekEnd, 'yyyy-MM-dd'),
+      };
+    }
+    case 'nextWeek': {
+      const nextWeekStart = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+      const nextWeekEnd = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+      return {
+        startDate: format(nextWeekStart, 'yyyy-MM-dd'),
+        endDate: format(nextWeekEnd, 'yyyy-MM-dd'),
+      };
+    }
+    case 'thisMonth': {
+      const monthStart = startOfMonth(today);
+      const monthEnd = endOfMonth(today);
+      return {
+        startDate: format(monthStart, 'yyyy-MM-dd'),
+        endDate: format(monthEnd, 'yyyy-MM-dd'),
+      };
+    }
+    case 'nextMonth': {
+      const nextMonthStart = startOfMonth(addMonths(today, 1));
+      const nextMonthEnd = endOfMonth(addMonths(today, 1));
+      return {
+        startDate: format(nextMonthStart, 'yyyy-MM-dd'),
+        endDate: format(nextMonthEnd, 'yyyy-MM-dd'),
+      };
+    }
+    case 'thisYear': {
+      const yearStart = startOfYear(today);
+      const yearEnd = endOfYear(today);
+      return {
+        startDate: format(yearStart, 'yyyy-MM-dd'),
+        endDate: format(yearEnd, 'yyyy-MM-dd'),
+      };
+    }
+    case 'last7Days': {
+      const sevenDaysAgo = subDays(today, 6); // Inclui hoje (7 dias no total)
+      return {
+        startDate: format(sevenDaysAgo, 'yyyy-MM-dd'),
+        endDate: format(today, 'yyyy-MM-dd'),
+      };
+    }
+    default:
+      return { startDate: format(today, 'yyyy-MM-dd'), endDate: format(today, 'yyyy-MM-dd') };
+  }
 };
 
 // Status de tarefas
@@ -103,6 +168,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [chartTimeRange, setChartTimeRange] = useState("30d");
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('today');
 
   // Configuração do gráfico de status de conteúdos
   const contentStatusChartConfig: ChartConfig = {
@@ -182,12 +248,25 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
   // Métricas
   const activeClients = clients.filter(c => c.status === 'active').length;
-  const readyContents = contents.filter(c => c.status === 'approved').length;
-  const pendingApprovals = contents.filter(c => c.status === 'pending').length;
+  // Calcular período baseado no filtro selecionado
+  const dateRange = getDateRange(dateFilter);
+  const { startDate, endDate } = dateRange;
   
-  const today = new Date().toISOString().split('T')[0];
-  const todayPosts = contents.filter(c => c.publish_date === today).length;
-  const allTodayTasks = tasks.filter(t => t.due_date === today); // Incluir todas as tarefas (incluindo concluídas)
+  // Filtrar dados baseado no período selecionado
+  const filteredContents = contents.filter(c => {
+    if (!c.publish_date) return false;
+    return c.publish_date >= startDate && c.publish_date <= endDate;
+  });
+  
+  const filteredTasks = tasks.filter(t => {
+    if (!t.due_date) return false;
+    return t.due_date >= startDate && t.due_date <= endDate;
+  });
+  
+  const readyContents = filteredContents.filter(c => c.status === 'approved').length;
+  const pendingApprovals = filteredContents.filter(c => c.status === 'pending').length;
+  const todayPosts = filteredContents.length;
+  const allTodayTasks = filteredTasks; // Incluir todas as tarefas (incluindo concluídas)
   
   // Filtrar tarefas por funcionário selecionado
   const todayTasks = selectedEmployeeId
@@ -206,9 +285,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     allTodayTasks.some(t => t.responsible_id === emp.id)
   );
 
-  // Próximas publicações (aprovados para postar)
-  const upcomingPublications = contents
-    .filter(c => c.status === 'approved' && c.publish_date && c.publish_date >= today)
+  // Próximas publicações (aprovados para postar no período selecionado)
+  const upcomingPublications = filteredContents
+    .filter(c => c.status === 'approved')
     .sort((a, b) => {
       const dateCompare = (a.publish_date || '').localeCompare(b.publish_date || '');
       if (dateCompare !== 0) return dateCompare;
@@ -226,8 +305,45 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     .sort((a, b) => b.totalPoints - a.totalPoints)
     .slice(0, 5); // Top 5
 
+  // Labels para o filtro de data
+  const dateFilterLabels: Record<DateFilterType, string> = {
+    today: 'Hoje',
+    thisWeek: 'Esta Semana',
+    nextWeek: 'Semana que Vem',
+    thisMonth: 'Este Mês',
+    nextMonth: 'Mês que Vem',
+    thisYear: 'Este Ano',
+    last7Days: 'Últimos 7 Dias',
+  };
+
   return (
     <div className="space-y-6">
+      {/* Filtro de Data */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-card-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Visualize os dados do período selecionado
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Select value={dateFilter} onValueChange={(value) => setDateFilter(value as DateFilterType)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">{dateFilterLabels.today}</SelectItem>
+              <SelectItem value="thisWeek">{dateFilterLabels.thisWeek}</SelectItem>
+              <SelectItem value="nextWeek">{dateFilterLabels.nextWeek}</SelectItem>
+              <SelectItem value="thisMonth">{dateFilterLabels.thisMonth}</SelectItem>
+              <SelectItem value="nextMonth">{dateFilterLabels.nextMonth}</SelectItem>
+              <SelectItem value="thisYear">{dateFilterLabels.thisYear}</SelectItem>
+              <SelectItem value="last7Days">{dateFilterLabels.last7Days}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
@@ -252,7 +368,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           onClick={() => onNavigate('approvals')}
         />
         <MetricCard
-          title="Posts de Hoje"
+          title={`Posts - ${dateFilterLabels[dateFilter]}`}
           value={todayPosts}
           icon={Calendar}
           color="bg-info/10 text-info"
@@ -268,7 +384,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div className="flex items-center gap-2">
                 <CheckSquare className="w-5 h-5 text-muted-foreground" />
-                <h2 className="font-semibold text-card-foreground">Tarefas de Hoje</h2>
+                <h2 className="font-semibold text-card-foreground">Tarefas - {dateFilterLabels[dateFilter]}</h2>
               </div>
               <button 
                 onClick={() => onNavigate('tasks')}
@@ -360,7 +476,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
               })}
               {sortedTodayTasks.length === 0 && (
                 <p className="text-center text-muted-foreground py-4 text-sm">
-                  Nenhuma tarefa para hoje 🎉
+                  Nenhuma tarefa para {dateFilterLabels[dateFilter].toLowerCase()} 🎉
                 </p>
               )}
             </div>
@@ -371,7 +487,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-muted-foreground" />
-                <h2 className="font-semibold text-card-foreground">Próximas Publicações</h2>
+                <h2 className="font-semibold text-card-foreground">Publicações - {dateFilterLabels[dateFilter]}</h2>
               </div>
               <button 
                 onClick={() => onNavigate('calendar')}
@@ -634,8 +750,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </CardHeader>
           <CardContent className="flex-1 flex flex-col items-center justify-center pb-6">
             {(() => {
-              // Calcular porcentagem de conteúdos aprovados (todos os conteúdos agendados)
-              const scheduledContents = contents.filter(c => c.publish_date && c.publish_date >= today);
+              // Calcular porcentagem de conteúdos aprovados (todos os conteúdos agendados no período)
+              const scheduledContents = filteredContents.filter(c => c.publish_date);
               const approvedContents = scheduledContents.filter(c => c.status === 'approved').length;
               const percentage = scheduledContents.length > 0 
                 ? Math.round((approvedContents / scheduledContents.length) * 100 * 10) / 10

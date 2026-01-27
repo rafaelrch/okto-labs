@@ -28,7 +28,7 @@ import {
   NoSymbolIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Calendar } from 'lucide-react';
 import { useApprovalComments, ApprovalComment, useClients, useEmployees, Employee, useContents, Content } from '@/hooks/useSupabaseData';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -44,6 +44,24 @@ import { uploadFile, deleteFile, isStorageUrl } from '@/lib/supabase-storage';
 
 // Roles da área criativa
 const CREATIVE_ROLES = ['designer', 'editor', 'editor de vídeo', 'editor de video', 'motion', 'ilustrador', 'diretor de arte'];
+
+// Helper para parsear datas corretamente (evita problema de timezone)
+const parseLocalDate = (dateString: string): Date => {
+  // Se for apenas data (ex: "2024-01-22")
+  if (dateString.length === 10 && dateString.includes('-')) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  // Se for datetime-local (ex: "2024-01-22T10:00")
+  if (dateString.includes('T') && !dateString.includes('Z') && !dateString.includes('+')) {
+    const [datePart, timePart] = dateString.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = (timePart || '00:00').split(':').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+  }
+  // Fallback para outros formatos
+  return new Date(dateString);
+};
 
 interface ApprovalsPageProps {
   searchQuery: string;
@@ -75,12 +93,14 @@ function SortableCard({
   content, 
   onClick, 
   onRename, 
-  onDelete 
+  onDelete,
+  commentCount = 0
 }: { 
   content: Content; 
   onClick: () => void;
   onRename: () => void;
   onDelete: () => void;
+  commentCount?: number;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: content.id,
@@ -91,6 +111,30 @@ function SortableCard({
     transition,
     opacity: isDragging ? 0.5 : 1,
   };
+
+  // Helper para parsear datas YYYY-MM-DD como data local
+  const parseLocalDate = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  // Formatar data de entrega
+  const formatDeadline = (deadline?: string, deadlineTime?: string) => {
+    if (!deadline) return null;
+    try {
+      const date = parseLocalDate(deadline);
+      const formattedDate = format(date, "dd 'de' MMM", { locale: ptBR });
+      if (deadlineTime) {
+        const [hours, minutes] = deadlineTime.split(':');
+        return `${formattedDate} às ${hours}:${minutes}`;
+      }
+      return formattedDate;
+    } catch {
+      return deadline;
+    }
+  };
+
+  const deadlineFormatted = formatDeadline(content.deadline, (content as any).deadline_time);
 
   return (
     <div
@@ -124,12 +168,30 @@ function SortableCard({
         onClick={onClick}
         className="flex-1 p-3 text-left min-w-0"
       >
-        <h3 className="font-semibold text-sm mb-1 line-clamp-2">{content.title}</h3>
-        <div className="flex items-center gap-3">
+        <h3 className="font-semibold text-sm mb-1.5 line-clamp-2">{content.title}</h3>
+        
+        {/* Data de entrega */}
+        {deadlineFormatted && (
+          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1.5">
+            <Calendar className="w-3 h-3" />
+            <span>{deadlineFormatted}</span>
+          </div>
+        )}
+
+        {/* Ícones de anexos e comentários */}
+        <div className="flex items-center gap-3 mt-1.5">
           {content.files.length > 0 && (
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <PhotoIcon className="w-3 h-3" />
               <span>{content.files.length}</span>
+            </div>
+          )}
+          {commentCount > 0 && (
+            <div className="flex items-center gap-1 text-xs text-primary">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <span>{commentCount}</span>
             </div>
           )}
         </div>
@@ -175,6 +237,7 @@ function Column({
   onRenameCard,
   onDeleteCard,
   isDragging,
+  commentCounts = {},
 }: { 
   column: typeof COLUMNS[number]; 
   contents: Content[];
@@ -183,6 +246,7 @@ function Column({
   onRenameCard: (content: Content) => void;
   onDeleteCard: (content: Content) => void;
   isDragging?: boolean;
+  commentCounts?: Record<string, number>;
 }) {
   // Hook para detectar quando item está sobre a coluna
   const { setNodeRef, isOver } = useDroppable({
@@ -221,6 +285,7 @@ function Column({
               onClick={() => onCardClick(content)} 
               onRename={() => onRenameCard(content)}
               onDelete={() => onDeleteCard(content)}
+              commentCount={commentCounts[content.id] || 0}
             />
           ))}
         </SortableContext>
@@ -245,6 +310,7 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
   const [selectedContent, setSelectedContent] = useState<Content | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
   // Filtrar funcionários da área criativa
   const creativeEmployees = useMemo(() => {
@@ -260,6 +326,40 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
       setSelectedEmployee(creativeEmployees[0].id);
     }
   }, [creativeEmployees, selectedEmployee]);
+
+  // Buscar contagem de comentários para todos os conteúdos
+  useEffect(() => {
+    const fetchCommentCounts = async () => {
+      if (contents.length === 0) return;
+      
+      try {
+        const contentIds = contents.map(c => c.id);
+        const { data, error } = await supabase
+          .from('approval_comments')
+          .select('content_id')
+          .in('content_id', contentIds);
+
+        if (error) {
+          console.error('Erro ao buscar comentários:', error);
+          return;
+        }
+
+        // Contar comentários por content_id
+        const counts: Record<string, number> = {};
+        data?.forEach(comment => {
+          if (comment.content_id) {
+            counts[comment.content_id] = (counts[comment.content_id] || 0) + 1;
+          }
+        });
+
+        setCommentCounts(counts);
+      } catch (error) {
+        console.error('Erro ao buscar contagem de comentários:', error);
+      }
+    };
+
+    fetchCommentCounts();
+  }, [contents]);
   
   const sensors = useSensors(
     useSensor(MouseSensor, {
@@ -564,6 +664,7 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
                   onRenameCard={handleRenameCard}
                   onDeleteCard={handleDeleteCard}
                   isDragging={!!activeId}
+                  commentCounts={commentCounts}
                 />
               ))}
           </div>
@@ -1155,10 +1256,22 @@ function ContentDetailModal({
     return emp?.name || 'Sem responsável';
   };
 
-  // Função para verificar se está atrasado
+  // Função para verificar se está atrasado (considera data E horário)
   const isOverdue = () => {
     if (!deadline) return false;
-    return new Date(deadline) < new Date();
+    
+    const deadlineDate = parseLocalDate(deadline);
+    
+    // Se tiver horário de prazo, usar ele
+    if (deadlineTime) {
+      const [hours, minutes] = deadlineTime.split(':').map(Number);
+      deadlineDate.setHours(hours, minutes, 0, 0);
+    } else {
+      // Se não tiver horário, considerar fim do dia (23:59)
+      deadlineDate.setHours(23, 59, 59, 999);
+    }
+    
+    return new Date() > deadlineDate;
   };
 
   // Formatar horário para hh:mm (remover segundos se houver)
@@ -1535,7 +1648,7 @@ function ContentDetailModal({
                   <span className="text-xs text-muted-foreground block mb-2">Data de publicação</span>
                   <div className="flex items-center gap-1 text-sm font-medium h-[28px]">
                     {publishDate && (
-                      <span>{format(new Date(publishDate), "dd 'de' MMM.", { locale: ptBR })} {publishTime}</span>
+                      <span>{format(parseLocalDate(publishDate), "dd 'de' MMM.", { locale: ptBR })} {publishTime}</span>
                     )}
                     {!publishDate && <span className="text-muted-foreground">Não definida</span>}
                     <input
@@ -1559,7 +1672,7 @@ function ContentDetailModal({
                   <div className="flex items-center gap-2 h-[28px]">
                     {deadline && (
                       <span className="text-sm font-medium">
-                        {format(new Date(deadline), "dd 'de' MMM", { locale: ptBR })}
+                        {format(parseLocalDate(deadline), "dd 'de' MMM", { locale: ptBR })}
                         {deadlineTime && ` às ${formatTime(deadlineTime)}`}
                       </span>
                     )}
@@ -1939,7 +2052,7 @@ function ContentDetailModal({
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-foreground">{getUserName(comment.user_id)}</span>
                       <span className="text-sm text-muted-foreground">
-                        {format(new Date(comment.created_at), "dd 'de' MMM. yyyy, HH:mm", { locale: ptBR })}
+                        {format(parseLocalDate(comment.created_at), "dd 'de' MMM. yyyy, HH:mm", { locale: ptBR })}
                       </span>
                     </div>
                   </div>
