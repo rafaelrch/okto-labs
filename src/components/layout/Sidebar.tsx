@@ -13,6 +13,7 @@ import {
   ArrowLeftOnRectangleIcon,
   RocketLaunchIcon,
   ChatBubbleLeftIcon,
+  SparklesIcon,
 } from '@heroicons/react/24/outline';
 import {
   Squares2X2Icon as Squares2X2IconSolid,
@@ -25,6 +26,7 @@ import {
   UserCircleIcon as UserCircleIconSolid,
   RocketLaunchIcon as RocketLaunchIconSolid,
   ChatBubbleLeftIcon as ChatBubbleLeftIconSolid,
+  SparklesIcon as SparklesIconSolid,
 } from '@heroicons/react/24/solid';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -39,6 +41,7 @@ interface SidebarProps {
 
 const menuItems = [
   { id: 'dashboard', label: 'Dashboard', icon: Squares2X2Icon, iconSolid: Squares2X2IconSolid },
+  { id: 'agents', label: 'Agentes IA', icon: SparklesIcon, iconSolid: SparklesIconSolid, isBeta: true },
   { id: 'ideas', label: 'Ideias', icon: LightBulbIcon, iconSolid: LightBulbIconSolid },
   { id: 'clients', label: 'Clientes', icon: UserGroupIcon, iconSolid: UserGroupIconSolid },
   { id: 'schedule', label: 'Cronograma', icon: CalendarIcon, iconSolid: CalendarIconSolid },
@@ -119,6 +122,11 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
               {!collapsed && (
                 <>
                   <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
+                  {item.isBeta && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-md uppercase tracking-wide">
+                      Beta
+                    </span>
+                  )}
                   {badgeValue > 0 && (
                     <>
                       {item.id === 'missions' ? (
@@ -143,6 +151,9 @@ export function Sidebar({ currentPage, onPageChange, pendingApprovals, todayTask
                 )}>
                   {item.id === 'missions' && badgeValue}
                 </span>
+              )}
+              {collapsed && item.isBeta && (
+                <span className="absolute -right-1 -top-1 w-2 h-2 rounded-full bg-gradient-to-r from-purple-500 to-pink-500" />
               )}
             </button>
           );

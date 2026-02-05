@@ -37,7 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, startOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, addDays, addWeeks, addMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { uploadFile, deleteFile, isStorageUrl } from '@/lib/supabase-storage';
@@ -61,6 +61,61 @@ const parseLocalDate = (dateString: string): Date => {
   }
   // Fallback para outros formatos
   return new Date(dateString);
+};
+
+// Filtro de data para a página de Aprovações
+type ApprovalsDateFilter = 'today' | 'tomorrow' | 'thisWeek' | 'nextWeek' | 'thisMonth' | 'next3Months' | 'thisYear';
+
+const getApprovalsDateRange = (filter: ApprovalsDateFilter): { startDate: string; endDate: string } => {
+  const today = startOfDay(new Date());
+  switch (filter) {
+    case 'today': {
+      const d = format(today, 'yyyy-MM-dd');
+      return { startDate: d, endDate: d };
+    }
+    case 'tomorrow': {
+      const d = format(addDays(today, 1), 'yyyy-MM-dd');
+      return { startDate: d, endDate: d };
+    }
+    case 'thisWeek': {
+      const start = startOfWeek(today, { weekStartsOn: 1 });
+      const end = endOfWeek(today, { weekStartsOn: 1 });
+      return { startDate: format(start, 'yyyy-MM-dd'), endDate: format(end, 'yyyy-MM-dd') };
+    }
+    case 'nextWeek': {
+      const start = startOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+      const end = endOfWeek(addWeeks(today, 1), { weekStartsOn: 1 });
+      return { startDate: format(start, 'yyyy-MM-dd'), endDate: format(end, 'yyyy-MM-dd') };
+    }
+    case 'thisMonth': {
+      const start = startOfMonth(today);
+      const end = endOfMonth(today);
+      return { startDate: format(start, 'yyyy-MM-dd'), endDate: format(end, 'yyyy-MM-dd') };
+    }
+    case 'next3Months': {
+      const start = today;
+      const end = addMonths(endOfMonth(today), 2); // este mês + 2 = próximos 3 meses
+      return { startDate: format(start, 'yyyy-MM-dd'), endDate: format(end, 'yyyy-MM-dd') };
+    }
+    case 'thisYear': {
+      const start = startOfYear(today);
+      const end = endOfYear(today);
+      return { startDate: format(start, 'yyyy-MM-dd'), endDate: format(end, 'yyyy-MM-dd') };
+    }
+    default:
+      const d = format(today, 'yyyy-MM-dd');
+      return { startDate: d, endDate: d };
+  }
+};
+
+const APPROVALS_DATE_FILTER_LABELS: Record<ApprovalsDateFilter, string> = {
+  today: 'Hoje',
+  tomorrow: 'Amanhã',
+  thisWeek: 'Esta semana',
+  nextWeek: 'Próxima semana',
+  thisMonth: 'Este mês',
+  next3Months: 'Próximos 3 meses',
+  thisYear: 'Este ano',
 };
 
 interface ApprovalsPageProps {
@@ -311,6 +366,7 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [dateFilter, setDateFilter] = useState<ApprovalsDateFilter>('today');
 
   // Filtrar funcionários da área criativa
   const creativeEmployees = useMemo(() => {
@@ -388,8 +444,9 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     'rejected': 'rejected',
   };
 
-  // Organizar conteúdos por coluna (filtrado por funcionário)
+  // Organizar conteúdos por coluna (filtrado por funcionário e por data)
   const contentsByColumn = useMemo(() => {
+    const { startDate, endDate } = getApprovalsDateRange(dateFilter);
     const grouped: Record<ColumnId, Content[]> = {
       content: [],
       production: [],
@@ -403,7 +460,10 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
       .filter(c => {
         const matchesSearch = !searchQuery || c.title.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesEmployee = !selectedEmployee || c.responsible_id === selectedEmployee;
-        return matchesSearch && matchesEmployee;
+        // Data: usar prazo de entrega (deadline) ou data de publicação; se não tiver nenhuma, incluir
+        const refDate = c.deadline || c.publish_date;
+        const matchesDate = !refDate || (refDate >= startDate && refDate <= endDate);
+        return matchesSearch && matchesEmployee && matchesDate;
       })
       .forEach(content => {
         const columnId = contentStatusToColumn[content.status] || 'content';
@@ -420,7 +480,7 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
     });
 
     return grouped;
-  }, [contents, searchQuery, selectedEmployee]);
+  }, [contents, searchQuery, selectedEmployee, dateFilter]);
 
   // Função para obter nome do cliente
   const getClientName = (clientId?: string) => {
@@ -609,33 +669,51 @@ export function ApprovalsPage({ searchQuery }: ApprovalsPageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Tabs de Funcionários Criativos */}
-      <div className="flex flex-row items-center justify-start [perspective:1000px] relative overflow-auto sm:overflow-visible no-visible-scrollbar max-w-full w-full gap-1">
-        {creativeEmployees.map((emp) => (
-          <button
-            key={emp.id}
-            onClick={() => setSelectedEmployee(emp.id)}
-            className={cn("relative px-4 py-2 rounded-full transition-colors", 
-              selectedEmployee === emp.id ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            style={{ transformStyle: "preserve-3d" }}
-          >
-            {selectedEmployee === emp.id && (
-              <motion.div
-                layoutId="approvals-tab"
-                transition={{ type: "spring", bounce: 0.3, duration: 0.6 }}
-                className="absolute inset-0 bg-primary/20 rounded-full"
-              />
-            )}
-            <span className="relative flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold">
-                {emp.name?.charAt(0).toUpperCase()}
-                  </div>
-              <span className="whitespace-nowrap">{emp.name}</span>
-            </span>
-          </button>
-                ))}
+      {/* Tabs de Funcionários + Filtro de Data */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-row items-center justify-start [perspective:1000px] relative overflow-auto sm:overflow-visible no-visible-scrollbar max-w-full w-full gap-1">
+          {creativeEmployees.map((emp) => (
+            <button
+              key={emp.id}
+              onClick={() => setSelectedEmployee(emp.id)}
+              className={cn("relative px-4 py-2 rounded-full transition-colors", 
+                selectedEmployee === emp.id ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              style={{ transformStyle: "preserve-3d" }}
+            >
+              {selectedEmployee === emp.id && (
+                <motion.div
+                  layoutId="approvals-tab"
+                  transition={{ type: "spring", bounce: 0.3, duration: 0.6 }}
+                  className="absolute inset-0 bg-primary/20 rounded-full"
+                />
+              )}
+              <span className="relative flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold">
+                  {emp.name?.charAt(0).toUpperCase()}
+                </div>
+                <span className="whitespace-nowrap">{emp.name}</span>
+              </span>
+            </button>
+          ))}
         </div>
+        <div className="flex-shrink-0">
+          <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as ApprovalsDateFilter)}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Período" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="today">{APPROVALS_DATE_FILTER_LABELS.today}</SelectItem>
+              <SelectItem value="tomorrow">{APPROVALS_DATE_FILTER_LABELS.tomorrow}</SelectItem>
+              <SelectItem value="thisWeek">{APPROVALS_DATE_FILTER_LABELS.thisWeek}</SelectItem>
+              <SelectItem value="nextWeek">{APPROVALS_DATE_FILTER_LABELS.nextWeek}</SelectItem>
+              <SelectItem value="thisMonth">{APPROVALS_DATE_FILTER_LABELS.thisMonth}</SelectItem>
+              <SelectItem value="next3Months">{APPROVALS_DATE_FILTER_LABELS.next3Months}</SelectItem>
+              <SelectItem value="thisYear">{APPROVALS_DATE_FILTER_LABELS.thisYear}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       <AnimatePresence mode="wait">
         <motion.div
