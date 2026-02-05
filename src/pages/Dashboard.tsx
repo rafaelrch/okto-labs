@@ -8,8 +8,6 @@ import {
   CheckSquare,
   Image as ImageIcon,
   Loader2,
-  Trophy,
-  Award,
   Circle,
   CheckCircle2,
   XCircle,
@@ -294,17 +292,6 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       return a.publish_time.localeCompare(b.publish_time);
     });
 
-  // Calcular ranking de pontuações das missões
-  const leaderboard = employees
-    .map(emp => {
-      const empMissions = missions.filter(m => m.assigned_to === emp.user_id && m.status === 'completed');
-      const totalPoints = empMissions.reduce((sum, m) => sum + m.points, 0);
-      return { ...emp, totalPoints, completedCount: empMissions.length };
-    })
-    .filter(emp => emp.totalPoints > 0)
-    .sort((a, b) => b.totalPoints - a.totalPoints)
-    .slice(0, 5); // Top 5
-
   // Labels para o filtro de data
   const dateFilterLabels: Record<DateFilterType, string> = {
     today: 'Hoje',
@@ -546,67 +533,113 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
         </div>
 
-        {/* Right side - Ranking de Missões */}
+        {/* Right side - Performance */}
         <div className="lg:w-80 flex-shrink-0">
-          <Card className="border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-orange-500/5 h-full">
-            <CardHeader className="pb-3">
+          <Card className="flex flex-col h-full">
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Trophy className="w-5 h-5 text-amber-500 flex-shrink-0" />
-                  Ranking Missões
-                </CardTitle>
-                <button 
-                  onClick={() => onNavigate('missions')}
-                  className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
-                >
-                  Ver todas <ArrowRight className="w-3 h-3" />
+                <CardTitle className="text-base font-semibold">Performance</CardTitle>
+                <button className="p-1 hover:bg-muted rounded-full transition-colors">
+                  <svg className="w-5 h-5 text-muted-foreground" fill="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="12" cy="19" r="2" />
+                  </svg>
                 </button>
               </div>
             </CardHeader>
-            <CardContent>
-              {leaderboard.length === 0 ? (
-                <p className="text-muted-foreground text-center py-4 text-sm">
-                  Nenhum ponto ainda
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {leaderboard.map((emp, index) => (
-                    <div
-                      key={emp.id}
-                      className={cn(
-                        'flex items-center gap-2 p-2 rounded-lg',
-                        index === 0 && 'bg-amber-500/10 border border-amber-500/30',
-                        index === 1 && 'bg-gray-300/10 border border-gray-300/30',
-                        index === 2 && 'bg-orange-700/10 border border-orange-700/30',
-                        index > 2 && 'bg-muted/50'
-                      )}
-                    >
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">
-                        {index === 0 && <Award className="w-4 h-4 text-amber-500" />}
-                        {index === 1 && <Award className="w-4 h-4 text-gray-400" />}
-                        {index === 2 && <Award className="w-4 h-4 text-orange-700" />}
-                        {index > 2 && <span className="text-xs text-muted-foreground">{index + 1}º</span>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground text-xs truncate">{emp.name}</p>
-                        <p className="text-xs text-muted-foreground">{emp.completedCount} missões</p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="font-bold text-amber-500 text-sm">{emp.totalPoints}</p>
+            <CardContent className="flex-1 flex flex-col items-center justify-center pb-6">
+              {(() => {
+                // Calcular porcentagem de conteúdos aprovados (todos os conteúdos agendados no período)
+                const scheduledContents = filteredContents.filter(c => c.publish_date);
+                const approvedContents = scheduledContents.filter(c => c.status === 'approved').length;
+                const percentage = scheduledContents.length > 0 
+                  ? Math.round((approvedContents / scheduledContents.length) * 100 * 10) / 10
+                  : 0;
+                
+                // Configuração do gauge - arco simples com bordas arredondadas
+                const radius = 70;
+                const strokeWidth = 12;
+                const circumference = Math.PI * radius; // semi-círculo
+                const filledLength = (percentage / 100) * circumference;
+                const unfilledLength = circumference - filledLength;
+                
+                return (
+                  <>
+                    {/* Badge de performance */}
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-full mb-3">
+                      <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                      </svg>
+                      <span className="text-xs text-muted-foreground">
+                        {scheduledContents.length > 0 ? (
+                          <><span className="text-primary font-medium">{percentage}%</span> dos conteúdos aprovados</>
+                        ) : (
+                          <>Nenhum conteúdo agendado</>
+                        )}
+                      </span>
+                    </div>
+                    
+                    {/* Gauge SVG - Arco simples com bordas arredondadas */}
+                    <div className="relative mb-3">
+                      <svg width="180" height="100" viewBox="0 0 180 100">
+                        {/* Arco de fundo (cinza) */}
+                        <path
+                          d={`M ${20} ${90} A ${radius} ${radius} 0 0 1 ${160} ${90}`}
+                          fill="none"
+                          stroke="#e2e8f0"
+                          strokeWidth={strokeWidth}
+                          strokeLinecap="round"
+                        />
+                        {/* Arco preenchido (azul) */}
+                        {percentage > 0 && (
+                          <path
+                            d={`M ${20} ${90} A ${radius} ${radius} 0 0 1 ${160} ${90}`}
+                            fill="none"
+                            stroke="#6366f1"
+                            strokeWidth={strokeWidth}
+                            strokeLinecap="round"
+                            strokeDasharray={`${filledLength} ${unfilledLength}`}
+                          />
+                        )}
+                      </svg>
+                      
+                      {/* Percentage text */}
+                      <div className="absolute inset-x-0 bottom-0 flex flex-col items-center">
+                        <span className="text-2xl font-bold text-foreground">{percentage}%</span>
+                        <span className="text-xs text-muted-foreground">Aprovados</span>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
+                    
+                    {/* Stats */}
+                    <div className="w-full mt-3 pt-3 border-t border-border">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Total de conteúdos</p>
+                          <p className="text-xl font-bold text-foreground">{scheduledContents.length}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-600 text-xs font-medium rounded-full">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                            </svg>
+                            {approvedContents} aprovados
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </CardContent>
           </Card>
         </div>
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Area Chart - Evolução de Conteúdos */}
-        <Card className="lg:col-span-3">
+        <Card>
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
               <CardTitle className="flex items-center gap-2">
@@ -734,106 +767,6 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 <ChartLegend content={<ChartLegendContent />} />
               </AreaChart>
             </ChartContainer>
-          </CardContent>
-        </Card>
-
-        {/* Gauge Chart - Performance de Aprovações */}
-        <Card className="flex flex-col">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg font-semibold">Performance</CardTitle>
-              <button className="p-1 hover:bg-muted rounded-full transition-colors">
-                <svg className="w-5 h-5 text-muted-foreground" fill="currentColor" viewBox="0 0 24 24">
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="12" cy="19" r="2" />
-                </svg>
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="flex-1 flex flex-col items-center justify-center pb-6">
-            {(() => {
-              // Calcular porcentagem de conteúdos aprovados (todos os conteúdos agendados no período)
-              const scheduledContents = filteredContents.filter(c => c.publish_date);
-              const approvedContents = scheduledContents.filter(c => c.status === 'approved').length;
-              const percentage = scheduledContents.length > 0 
-                ? Math.round((approvedContents / scheduledContents.length) * 100 * 10) / 10
-                : 0;
-              
-              // Configuração do gauge - arco simples com bordas arredondadas
-              const radius = 80;
-              const strokeWidth = 14;
-              const circumference = Math.PI * radius; // semi-círculo
-              const filledLength = (percentage / 100) * circumference;
-              const unfilledLength = circumference - filledLength;
-              
-              return (
-                <>
-                  {/* Badge de performance */}
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-full mb-4">
-                    <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                    <span className="text-sm text-muted-foreground">
-                      {scheduledContents.length > 0 ? (
-                        <><span className="text-primary font-medium">{percentage}%</span> dos conteúdos aprovados</>
-                      ) : (
-                        <>Nenhum conteúdo agendado</>
-                      )}
-                    </span>
-                  </div>
-                  
-                  {/* Gauge SVG - Arco simples com bordas arredondadas */}
-                  <div className="relative mb-4">
-                    <svg width="200" height="110" viewBox="0 0 200 110">
-                      {/* Arco de fundo (cinza) */}
-                      <path
-                        d={`M ${20} ${100} A ${radius} ${radius} 0 0 1 ${180} ${100}`}
-                        fill="none"
-                        stroke="#e2e8f0"
-                        strokeWidth={strokeWidth}
-                        strokeLinecap="round"
-                      />
-                      {/* Arco preenchido (azul) */}
-                      {percentage > 0 && (
-                        <path
-                          d={`M ${20} ${100} A ${radius} ${radius} 0 0 1 ${180} ${100}`}
-                          fill="none"
-                          stroke="#6366f1"
-                          strokeWidth={strokeWidth}
-                          strokeLinecap="round"
-                          strokeDasharray={`${filledLength} ${unfilledLength}`}
-                        />
-                      )}
-                    </svg>
-                    
-                    {/* Percentage text */}
-                    <div className="absolute inset-x-0 bottom-0 flex flex-col items-center">
-                      <span className="text-3xl font-bold text-foreground">{percentage}%</span>
-                      <span className="text-xs text-muted-foreground">Aprovados</span>
-                    </div>
-                  </div>
-                  
-                  {/* Stats */}
-                  <div className="w-full mt-4 pt-4 border-t border-border">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Total de conteúdos</p>
-                        <p className="text-2xl font-bold text-foreground">{scheduledContents.length}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-500/10 text-green-600 text-xs font-medium rounded-full">
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                          </svg>
-                          {approvedContents} aprovados
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
           </CardContent>
         </Card>
       </div>
